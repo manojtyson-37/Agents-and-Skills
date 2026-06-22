@@ -1,0 +1,134 @@
+{
+  "name": "cso-framework",
+  "displayName": "Chief of Staff AI Framework",
+  "version": "1.0.0",
+  "description": "Production-grade agent coordination system. Plan, execute, validate, and ship with clarity and accountability.",
+  "author": "CSO Team",
+  "license": "MIT",
+  "keywords": ["agents", "orchestration", "planning", "execution", "quality", "personas"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourorg/cso-framework"
+  },
+  "main": "README.md",
+  "engines": {
+    "claude-code": ">=1.0.0"
+  },
+  "skills": [
+    {
+      "name": "task-breakdown",
+      "path": "skills/task-breakdown/SKILL.md",
+      "description": "Break complex objectives into atomic, executable tasks."
+    },
+    {
+      "name": "incremental-implementation",
+      "path": "skills/incremental-implementation/SKILL.md",
+      "description": "Execute tasks one at a time, test-driven."
+    },
+    {
+      "name": "code-review-and-quality",
+      "path": "skills/code-review-and-quality/SKILL.md",
+      "description": "Review code for bugs, consistency, and quality."
+    },
+    {
+      "name": "output-compression",
+      "path": "skills/output-compression/SKILL.md",
+      "description": "Compress skill outputs and persona reports using Headroom (60-95% token savings)."
+    }
+  ],
+  "agents": [
+    {
+      "name": "orchestrator",
+      "path": "agents/orchestrator.md",
+      "description": "Chief of Staff coordinator. Routes work, owns outcomes."
+    },
+    {
+      "name": "engineer",
+      "path": "agents/engineer.md",
+      "description": "Technical builder. Executes tasks with tests."
+    },
+    {
+      "name": "test-engineer",
+      "path": "agents/test-engineer.md",
+      "description": "Validation specialist. Owns proof and coverage."
+    },
+    {
+      "name": "code-reviewer",
+      "path": "agents/code-reviewer.md",
+      "description": "Quality gate keeper. Owns merge approval."
+    },
+    {
+      "name": "ops",
+      "path": "agents/ops.md",
+      "description": "Status keeper. Tracks progress, surfaces blockers."
+    },
+    {
+      "name": "release-engineer",
+      "path": "agents/release-engineer.md",
+      "description": "Shipping specialist. Owns deployment and launch."
+    }
+  ],
+  "documentation": {
+    "readme": "README.md",
+    "agents": "AGENTS.md",
+    "gettingStarted": "CLAUDE_TEMPLATE.md",
+    "examples": ["PHASE1_VALIDATION.md", "PHASE2_VALIDATION.md"]
+  },
+  "commands": [
+    {
+      "name": "/task-breakdown",
+      "description": "Plan work into atomic tasks",
+      "skillName": "task-breakdown"
+    },
+    {
+      "name": "/incremental-implementation",
+      "description": "Execute a task with tests",
+      "skillName": "incremental-implementation"
+    },
+    {
+      "name": "/code-review-and-quality",
+      "description": "Review code before merge",
+      "skillName": "code-review-and-quality"
+    }
+  ],
+  "mcpServers": {
+    "headroom": {
+      "command": "headroom",
+      "args": ["mcp"],
+      "enabled": true,
+      "description": "Headroom context compression server",
+      "env": {
+        "HEADROOM_CACHE_DIR": "/Users/manojaaa/.headroom/cache",
+        "HEADROOM_PRESERVE_ORIGINALS": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "headroom_compress",
+      "description": "Compress content using Headroom (60-95% token reduction)",
+      "from": "headroom"
+    },
+    {
+      "name": "headroom_retrieve",
+      "description": "Retrieve original cached content from compression",
+      "from": "headroom"
+    },
+    {
+      "name": "headroom_stats",
+      "description": "Get compression statistics and cache metrics",
+      "from": "headroom"
+    }
+  ],
+  "configuration": {
+    "settings": {
+      "defaultPhase": "planning",
+      "escalationThreshold": "critical-only",
+      "compressionEnabled": true,
+      "compressionAggressiveness": 7
+    }
+  },
+  "hooks": {
+    "onActivate": "Initialize Chief of Staff framework + Headroom compression"
+  }
+}

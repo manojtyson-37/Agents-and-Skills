@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"/Users/manojaaa/.claude/\" 2>/dev/null | head -30)",
+      "Bash(curl -s \"https://api.github.com/repos/headroomlabs-ai/headroom\")"
+    ]
+  }
+}
