@@ -1,0 +1,22 @@
+{
+  "name": "cso-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time CSO workflow visualization dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "cso",
+    "dashboard",
+    "workflow",
+    "orchestration"
+  ],
+  "author": "CSO Framework",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.0",
+    "cors": "^2.8.5"
+  }
+}
