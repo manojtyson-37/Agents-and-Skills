@@ -22,10 +22,9 @@ async function onToolOutput() {
 
     const outputStr = typeof input === 'string' ? input : JSON.stringify(output);
 
-    // Track tokens from this tool output
+    // Track real token usage from this tool output
     const outputTokens = estimateTokens(outputStr);
-    const compressedTokens = Math.round(outputTokens * 0.35);
-    accumulateTokenMetrics(outputTokens, compressedTokens);
+    accumulateTokenMetrics(outputTokens);
 
     // Load workflow state
     if (!fs.existsSync(WORKFLOW_STATE)) {
@@ -39,11 +38,10 @@ async function onToolOutput() {
     if (state.inProgressTask && state.tasks[state.inProgressTask]) {
       const task = state.tasks[state.inProgressTask];
       if (!task.tokenMetrics) {
-        task.tokenMetrics = { input: 0, output: 0, compressed: 0 };
+        task.tokenMetrics = { totalTokens: 0, toolCalls: 0 };
       }
-      task.tokenMetrics.output += outputTokens;
-      task.tokenMetrics.compressed += compressedTokens;
-      task.tokenMetrics.input += estimateTokens(state.inProgressTask + ' ' + (task.title || ''));
+      task.tokenMetrics.totalTokens += outputTokens;
+      task.tokenMetrics.toolCalls += 1;
       fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
     }
 
@@ -67,31 +65,37 @@ function estimateTokens(text) {
   return Math.round(String(text).length / 4);
 }
 
-function accumulateTokenMetrics(outputTokens, compressedTokens) {
+function accumulateTokenMetrics(outputTokens) {
   let metrics = {
-    tasksCompleted: 0, totalTasksPlanned: 0, compressionPercent: 0,
-    totalTokens: { input: 0, compressed: 0, saved: 0 },
+    tasksCompleted: 0, totalTasksPlanned: 0,
+    tokenUsage: { totalTokens: 0, toolCalls: 0, peakOutput: 0, sessionStartedAt: null },
     decisions: { approved: 0, rework: 0, escalated: 0 }
   };
 
   if (fs.existsSync(METRICS_FILE)) {
     try {
       metrics = JSON.parse(fs.readFileSync(METRICS_FILE, 'utf-8'));
-      if (!metrics.totalTokens) {
-        metrics.totalTokens = { input: 0, compressed: 0, saved: 0 };
+      if (!metrics.tokenUsage) {
+        metrics.tokenUsage = { totalTokens: 0, toolCalls: 0, peakOutput: 0, sessionStartedAt: null };
       }
     } catch {}
   }
 
-  const inputTokens = Math.round(outputTokens * 0.15);
-  metrics.totalTokens.input = (metrics.totalTokens.input || 0) + inputTokens;
-  metrics.totalTokens.compressed = (metrics.totalTokens.compressed || 0) + compressedTokens;
-  metrics.totalTokens.saved = (metrics.totalTokens.saved || 0) + (outputTokens - compressedTokens);
+  if (!metrics.tokenUsage.sessionStartedAt) {
+    metrics.tokenUsage.sessionStartedAt = new Date().toISOString();
+  }
 
-  const totalOutput = metrics.totalTokens.compressed + metrics.totalTokens.saved;
-  metrics.compressionPercent = totalOutput > 0 ? ((metrics.totalTokens.saved / totalOutput) * 100) : 0;
+  metrics.tokenUsage.totalTokens = (metrics.tokenUsage.totalTokens || 0) + outputTokens;
+  metrics.tokenUsage.toolCalls = (metrics.tokenUsage.toolCalls || 0) + 1;
+  metrics.tokenUsage.peakOutput = Math.max(metrics.tokenUsage.peakOutput || 0, outputTokens);
 
-  // Sync task counts from workflow if available
+  // Burn rate: tokens per minute
+  const elapsed = (Date.now() - new Date(metrics.tokenUsage.sessionStartedAt).getTime()) / 60000;
+  metrics.tokenUsage.burnRate = elapsed > 0 ? Math.round(metrics.tokenUsage.totalTokens / elapsed) : 0;
+  metrics.tokenUsage.avgPerCall = metrics.tokenUsage.toolCalls > 0
+    ? Math.round(metrics.tokenUsage.totalTokens / metrics.tokenUsage.toolCalls) : 0;
+
+  // Sync task counts from workflow
   if (fs.existsSync(WORKFLOW_STATE)) {
     try {
       const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));

@@ -8,6 +8,9 @@ const STATE_DIR = path.join(__dirname, '../state');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
 
 async function onUserPrompt() {
+  // Always inject CSO protocol first — must run regardless of prompt content
+  injectCSOProtocol();
+
   try {
     const rawInput = await readStdin();
 
@@ -124,6 +127,32 @@ function logEvent(event, details) {
     path.join(STATE_DIR, 'task_history.jsonl'),
     JSON.stringify(entry) + '\n'
   );
+}
+
+function injectCSOProtocol() {
+  const STATE_DIR_ABS = '/Users/manojaaa/Agents and Skills/.cso/state';
+  console.log('[CSO Protocol] You are CSO, the Chief of Staff Orchestrator. Do NOT respond as a chatbot.');
+  console.log('[CSO Protocol] For ANY task: 1) PLAN — break into subtasks with owner/estimate/dependencies, write to workflow_state.json 2) EXECUTE — do real work, update state after each task 3) REVIEW — code-reviewer pass 4) NOTIFY — mark complete, notify user.');
+  console.log(`[CSO Protocol] State dir: ${STATE_DIR_ABS} (absolute path, use from any workspace). Files: workflow_state.json, decisions.jsonl, task_history.jsonl, metrics.json, notifications.jsonl`);
+  console.log('[CSO Protocol] Personas: engineer | test-engineer | code-reviewer | orchestrator | ops | release-engineer');
+  console.log('[CSO Protocol] Format: "CSO: [objective]" then plan, then execute, then "CSO: Complete." with summary.');
+
+  // Also inject current workflow status if one exists
+  if (fs.existsSync(WORKFLOW_STATE)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+      if (state.status === 'in-progress' || state.status === 'bootstrapping') {
+        const completed = (state.completedTasks || []).length;
+        const total = Object.keys(state.tasks || {}).length;
+        console.log(`[CSO] Resuming workflow: ${state.objective}`);
+        console.log(`[CSO] In-progress: ${state.inProgressTask} (${state.elapsedTime || '?'})`);
+        console.log(`[CSO] Progress: ${completed}/${total} tasks done`);
+        if (state.queuedTasks?.length > 0) {
+          console.log(`[CSO] Next tasks: ${state.queuedTasks.join(', ')}`);
+        }
+      }
+    } catch {}
+  }
 }
 
 onUserPrompt().catch(err => {

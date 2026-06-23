@@ -170,24 +170,30 @@
 
       <div class="kpi-card token-card">
         <div class="kpi-header">
-          <h2>Token Efficiency</h2>
+          <h2>Token Usage</h2>
           <span class="badge efficiency">LIVE</span>
         </div>
         <div class="efficiency-display">
           <div class="large-metric">
-            <span id="compression-percent" class="big-number">--</span>
-            <span class="unit">% saved</span>
+            <span id="total-tokens" class="big-number">--</span>
+            <span class="unit">tokens</span>
           </div>
-          <div class="efficiency-bars">
-            <div class="bar-item">
-              <label>Original output</label>
-              <div class="bar"><div id="bar-input" class="bar-fill"></div></div>
-              <span id="input-tokens" class="bar-label">0 tk</span>
+          <div class="token-stats-grid">
+            <div class="token-stat">
+              <span class="token-stat-value" id="burn-rate">--</span>
+              <span class="token-stat-label">tk/min</span>
             </div>
-            <div class="bar-item">
-              <label>After compression</label>
-              <div class="bar"><div id="bar-output" class="bar-fill compressed"></div></div>
-              <span id="output-tokens" class="bar-label">0 tk</span>
+            <div class="token-stat">
+              <span class="token-stat-value" id="tool-calls">--</span>
+              <span class="token-stat-label">tool calls</span>
+            </div>
+            <div class="token-stat">
+              <span class="token-stat-value" id="avg-per-call">--</span>
+              <span class="token-stat-label">avg/call</span>
+            </div>
+            <div class="token-stat">
+              <span class="token-stat-value" id="peak-output">--</span>
+              <span class="token-stat-label">peak</span>
             </div>
           </div>
         </div>

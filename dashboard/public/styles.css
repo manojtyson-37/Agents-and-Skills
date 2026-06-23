@@ -529,25 +529,38 @@ body {
 
 .unit { font-size: 12px; color: var(--text-3); font-weight: 500; }
 
-.efficiency-bars { display: flex; flex-direction: column; gap: 10px; }
-.bar-item { display: flex; flex-direction: column; gap: 5px; }
-.bar-item label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; }
-
-.bar {
-  height: 6px;
-  background: var(--bg-3);
-  border-radius: 3px;
-  overflow: hidden;
+.token-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 4px;
 }
 
-.bar-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 3px;
-  transition: width 0.4s ease;
+.token-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6px;
+  background: var(--bg-2);
+  border-radius: var(--radius-sm);
+  border: var(--card-border);
 }
 
-.bar-fill.compressed { background: var(--teal); }
+.token-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: 'SF Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.token-stat-label {
+  font-size: 9px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
 
 .bar-label {
   font-size: 10px;

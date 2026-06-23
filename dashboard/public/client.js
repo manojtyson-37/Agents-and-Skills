@@ -106,15 +106,13 @@ function renderKPIs() {
   healthEl.textContent = healthScore + '%';
   healthEl.className = healthScore >= 80 ? 'value good' : healthScore >= 60 ? 'value warning' : 'value danger';
 
-  const compressionVal = metrics.compressionPercent || 0;
-  document.getElementById('compression-percent').textContent = compressionVal > 0 ? compressionVal.toFixed(1) : '0';
-  const totalCompressed = metrics.totalTokens?.compressed || 0;
-  const totalSaved = metrics.totalTokens?.saved || 0;
-  const totalOutput = totalCompressed + totalSaved;
-  document.getElementById('bar-input').style.width = totalOutput > 0 ? '100%' : '0%';
-  document.getElementById('bar-output').style.width = totalOutput > 0 ? ((totalCompressed / totalOutput) * 100) + '%' : '0%';
-  document.getElementById('input-tokens').textContent = totalOutput > 0 ? totalOutput.toLocaleString() + ' tk' : 'awaiting data';
-  document.getElementById('output-tokens').textContent = totalOutput > 0 ? totalCompressed.toLocaleString() + ' tk (saved ' + totalSaved.toLocaleString() + ')' : 'awaiting data';
+  const usage = metrics.tokenUsage || {};
+  const totalTk = usage.totalTokens || 0;
+  document.getElementById('total-tokens').textContent = totalTk > 0 ? formatTokenCount(totalTk) : '--';
+  document.getElementById('burn-rate').textContent = usage.burnRate ? formatTokenCount(usage.burnRate) : '--';
+  document.getElementById('tool-calls').textContent = usage.toolCalls || '--';
+  document.getElementById('avg-per-call').textContent = usage.avgPerCall ? formatTokenCount(usage.avgPerCall) : '--';
+  document.getElementById('peak-output').textContent = usage.peakOutput ? formatTokenCount(usage.peakOutput) : '--';
 
   const approved = decisions.filter(d => d.decision === 'APPROVE').length;
   const reworked = decisions.filter(d => d.decision === 'REWORK').length;
@@ -449,6 +447,12 @@ function renderDecisions() {
       </div>
     `;
   }).join('');
+}
+
+function formatTokenCount(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
 }
 
 function updateTime() {
