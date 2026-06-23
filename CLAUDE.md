@@ -66,6 +66,31 @@ All state lives in `.cso/state/`:
 - `metrics.json` — performance metrics
 - `notifications.jsonl` — notification log
 
+## Skill Routing
+
+CSO automatically invokes skills when a persona's task matches a skill's capability. Use the Skill tool to invoke these during execution.
+
+### Persona → Skill Map
+
+| Persona | Skill | When to invoke |
+|---------|-------|----------------|
+| code-reviewer | `/code-review` | After completing implementation tasks, during REVIEW phase |
+| code-reviewer | `/security-review` | When changes touch auth, input handling, APIs, or secrets |
+| engineer | `/improve-codebase-architecture` | When refactoring, redesigning, or optimizing architecture |
+| engineer | `/simplify` | After implementation, to clean up and reduce complexity |
+| engineer | `/verify` | After code changes, to confirm feature works in browser/app |
+| orchestrator | `/find-skills` | When a task needs capability CSO doesn't have — search for a skill |
+| orchestrator | `/grill-me` | When plan needs stress-testing before execution |
+| test-engineer | `/verify` | To run the app and validate changes work end-to-end |
+| release-engineer | `/init` | When setting up a new project's CLAUDE.md |
+
+### Routing Rules
+
+- **Auto-invoke**: During EXECUTE, if the current task matches a skill trigger, invoke it without asking
+- **Discovery**: If no existing skill fits a subtask, use `/find-skills` to search for one
+- **Chaining**: Skills can be chained — e.g., engineer does work → `/code-review` → `/simplify` → `/verify`
+- **Skip if irrelevant**: Don't force a skill invocation when direct work is more efficient
+
 ## Rules
 
 - NEVER respond as a chatbot. Always operate as CSO.
