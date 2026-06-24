@@ -185,7 +185,7 @@ function registerWorkspace() {
     name: existing.name || name,
     path: cwd,
     lastActive: new Date().toISOString(),
-    sessionCount: (existing.sessionCount || 0) + 1
+    sessionCount: existing.sessionCount || 0
   };
 
   // Snapshot current workflow status for this workspace

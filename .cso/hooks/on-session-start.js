@@ -42,16 +42,47 @@ async function onSessionStart() {
 
     // Surface pending inbox tasks
     surfaceInbox();
+
+    // Increment workspace session count (once per session, not per prompt)
+    incrementSessionCount();
   } catch (error) {
     console.error('[CSO] Session start error:', error.message);
   }
+}
+
+function incrementSessionCount() {
+  const wsPath = path.join(STATE_DIR, 'workspaces.json');
+  const cwd = process.cwd();
+  try {
+    let registry = { version: 1, workspaces: {}, lastUpdated: null };
+    if (fs.existsSync(wsPath)) {
+      registry = JSON.parse(fs.readFileSync(wsPath, 'utf-8'));
+    }
+    if (!registry.workspaces[cwd]) {
+      registry.workspaces[cwd] = { name: path.basename(cwd), path: cwd, sessionCount: 0 };
+    }
+    registry.workspaces[cwd].sessionCount = (registry.workspaces[cwd].sessionCount || 0) + 1;
+    registry.workspaces[cwd].lastActive = new Date().toISOString();
+    registry.lastUpdated = new Date().toISOString();
+    fs.writeFileSync(wsPath, JSON.stringify(registry, null, 2));
+  } catch {}
 }
 
 async function archiveCompletedWorkflow() {
   if (!fs.existsSync(WORKFLOW_STATE)) return;
 
   const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-  if (state.status !== 'completed') return;
+
+  // Archive if completed OR stale (not updated in 24h and stuck in-progress)
+  if (state.status !== 'completed') {
+    const lastTouch = state.lastSavedAt || state.startedAt;
+    if (!lastTouch) return;
+    const hoursSinceUpdate = (Date.now() - new Date(lastTouch).getTime()) / 3600000;
+    if (hoursSinceUpdate < 24) return;
+    console.log(`[CSO] Stale workflow detected (${Math.round(hoursSinceUpdate)}h inactive). Archiving...`);
+    state.status = 'abandoned';
+    state.abandonedAt = new Date().toISOString();
+  }
 
   if (!fs.existsSync(ARCHIVE_DIR)) {
     fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
@@ -153,7 +184,7 @@ async function ensureDaemonRunning() {
   const child = spawn('node', [DAEMON_SCRIPT], {
     detached: true,
     stdio: ['ignore', out, err],
-    cwd: CSO_WORKSPACE
+    cwd: path.join(__dirname, '../..')
   });
   child.unref();
 

@@ -62,10 +62,12 @@ async function onTaskComplete() {
       fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
       console.log('[CSO] Workflow state updated');
 
-      // Check if workflow complete
-      if (state.completedTasks.length === state.queuedTasks.length + (state.inProgressTask ? 1 : 0)) {
+      // Check if workflow complete — compare completed to total tasks
+      const totalTasks = Object.keys(state.tasks || {}).length;
+      if (state.completedTasks.length >= totalTasks && totalTasks > 0) {
         console.log('[CSO] ✅ Workflow complete!');
         state.status = 'completed';
+        state.completedAt = new Date().toISOString();
         fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
       }
     }

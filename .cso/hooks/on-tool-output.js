@@ -55,6 +55,15 @@ async function onToolOutput() {
     if (decision.action === 'APPROVE' && decision.nextTask) {
       routeTask(decision.nextTask, state);
     }
+
+    // Auto-detect workflow completion
+    const totalTasks = Object.keys(state.tasks || {}).length;
+    const completedCount = (state.completedTasks || []).length;
+    if (totalTasks > 0 && completedCount >= totalTasks && state.status === 'in-progress' && !state.inProgressTask) {
+      state.status = 'completed';
+      state.completedAt = new Date().toISOString();
+      fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
+    }
   } catch (error) {
     // Silently fail — don't block Claude's tool execution
   }
@@ -139,14 +148,16 @@ function readStdin() {
 
 function makeDecision(output, state) {
   const outputStr = JSON.stringify(output).toLowerCase();
-  const successKeywords = ['complete', 'success', 'passed', 'done', '✓', '✅'];
-  const errorKeywords = ['error', 'fail', 'failed', 'issue', '❌', 'broken'];
 
-  const hasSuccess = successKeywords.some(k => outputStr.includes(k));
-  const hasError = errorKeywords.some(k => outputStr.includes(k));
+  // Only flag real failures — require strong signals, not just keyword mentions
+  const failureSignals = ['exit code 1', 'exit code 2', 'command failed', 'fatal:', 'panic:', 'unhandled', 'segfault', 'enoent', 'permission denied'];
+  const successSignals = ['complete', 'success', 'passed', '✓', '✅'];
 
-  if (hasError && !hasSuccess) {
-    return { action: 'REWORK', issues: ['Errors detected in output'], reason: 'Output contains errors' };
+  const hasFailure = failureSignals.some(k => outputStr.includes(k));
+  const hasSuccess = successSignals.some(k => outputStr.includes(k));
+
+  if (hasFailure && !hasSuccess) {
+    return { action: 'REWORK', issues: ['Tool execution failed'], reason: 'Command/tool failure detected' };
   }
 
   return {
