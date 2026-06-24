@@ -79,6 +79,7 @@ CSO automatically invokes skills when a persona's task matches a skill's capabil
 | engineer | `/improve-codebase-architecture` | When refactoring, redesigning, or optimizing architecture |
 | engineer | `/simplify` | After implementation, to clean up and reduce complexity |
 | engineer | `/verify` | After code changes, to confirm feature works in browser/app |
+| orchestrator | `/cso-learn` | MANDATORY before every "CSO: Complete." — reflection pass to save learnings |
 | orchestrator | `/find-skills` | When a task needs capability CSO doesn't have — search for a skill |
 | orchestrator | `/grill-me` | When plan needs stress-testing before execution |
 | test-engineer | `/verify` | To run the app and validate changes work end-to-end |
