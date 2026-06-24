@@ -172,6 +172,48 @@ app.get('/api/archives', (req, res) => {
   }
 });
 
+// API: Get inbox tasks
+app.get('/api/inbox', (req, res) => {
+  try {
+    const inboxFile = path.join(STATE_DIR, 'inbox.json');
+    if (fs.existsSync(inboxFile)) {
+      res.json(JSON.parse(fs.readFileSync(inboxFile, 'utf-8')));
+    } else {
+      res.json({ version: 1, tasks: [] });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Get workspace registry
+app.get('/api/workspaces', (req, res) => {
+  try {
+    const wsFile = path.join(STATE_DIR, 'workspaces.json');
+    if (fs.existsSync(wsFile)) {
+      res.json(JSON.parse(fs.readFileSync(wsFile, 'utf-8')));
+    } else {
+      res.json({ version: 1, workspaces: {} });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Get PR watchdog status
+app.get('/api/pr-watchdog', (req, res) => {
+  try {
+    const prFile = path.join(STATE_DIR, 'pr-watchdog.json');
+    if (fs.existsSync(prFile)) {
+      res.json(JSON.parse(fs.readFileSync(prFile, 'utf-8')));
+    } else {
+      res.json({ lastRun: null, prs: [] });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`CSO Dashboard running: http://localhost:${PORT}`);
   console.log(`Watching: ${STATE_DIR}`);

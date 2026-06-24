@@ -39,6 +39,9 @@ async function onSessionStart() {
     } else {
       console.log('[CSO] New session. Ready for first workflow.');
     }
+
+    // Surface pending inbox tasks
+    surfaceInbox();
   } catch (error) {
     console.error('[CSO] Session start error:', error.message);
   }
@@ -155,6 +158,23 @@ async function ensureDaemonRunning() {
   child.unref();
 
   console.log(`[CSO] Daemon started (pid: ${child.pid})`);
+}
+
+function surfaceInbox() {
+  const inboxPath = path.join(STATE_DIR, 'inbox.json');
+  if (!fs.existsSync(inboxPath)) return;
+
+  try {
+    const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+    const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
+    if (pending.length === 0) return;
+
+    console.log(`[CSO Inbox] ${pending.length} pending task(s):`);
+    pending.forEach((t, i) => {
+      const age = t.createdAt ? Math.round((Date.now() - new Date(t.createdAt).getTime()) / 3600000) + 'h ago' : '';
+      console.log(`[CSO Inbox] ${i + 1}. ${t.title} [${t.workspace || 'unknown'}] ${t.priority || ''} ${age}`);
+    });
+  } catch {}
 }
 
 onSessionStart().catch(err => {

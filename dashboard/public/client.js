@@ -2,17 +2,20 @@ const REFRESH_INTERVAL = 2000;
 let taskChart = null;
 let decisionChart = null;
 let workflow = {}, decisions = [], metrics = {}, history = [], notifications = [], archives = [];
+let inbox = { tasks: [] }, workspaces = { workspaces: {} };
 let expandedWorkflows = new Set(['current']);
 
 async function fetchData() {
   try {
-    [workflow, decisions, metrics, history, notifications, archives] = await Promise.all([
+    [workflow, decisions, metrics, history, notifications, archives, inbox, workspaces] = await Promise.all([
       fetch('/api/workflow').then(r => r.json()),
       fetch('/api/decisions').then(r => r.json()),
       fetch('/api/metrics').then(r => r.json()),
       fetch('/api/history').then(r => r.json()),
       fetch('/api/notifications').then(r => r.json()),
-      fetch('/api/archives').then(r => r.json()).catch(() => [])
+      fetch('/api/archives').then(r => r.json()).catch(() => []),
+      fetch('/api/inbox').then(r => r.json()).catch(() => ({ tasks: [] })),
+      fetch('/api/workspaces').then(r => r.json()).catch(() => ({ workspaces: {} }))
     ]);
     render();
     updateTime();
@@ -26,6 +29,8 @@ function render() {
   renderActiveTask();
   renderKPIs();
   renderCharts();
+  renderInbox();
+  renderWorkspaces();
   renderAlerts();
   renderTasks();
   renderDecisions();
@@ -447,6 +452,72 @@ function renderDecisions() {
       </div>
     `;
   }).join('');
+}
+
+function renderInbox() {
+  const container = document.getElementById('inbox-container');
+  const countEl = document.getElementById('inbox-count');
+  const tasks = (inbox.tasks || []).filter(t => t.status === 'pending');
+  countEl.textContent = tasks.length;
+
+  if (tasks.length === 0) {
+    container.innerHTML = '<p class="empty">No pending tasks</p>';
+    return;
+  }
+
+  container.innerHTML = tasks.map(t => {
+    const age = t.createdAt ? timeAgo(new Date(t.createdAt)) : '';
+    const priorityClass = t.priority === 'blocked' ? 'blocked' : 'ready';
+    return `
+      <div class="inbox-item ${priorityClass}">
+        <div class="inbox-item-title">${t.title}</div>
+        <div class="inbox-item-meta">
+          <span class="inbox-workspace">${t.workspace || '?'}</span>
+          <span class="inbox-owner">${t.owner || ''}</span>
+          <span class="inbox-age">${age}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderWorkspaces() {
+  const container = document.getElementById('workspaces-container');
+  const countEl = document.getElementById('workspace-count');
+  const ws = workspaces.workspaces || {};
+  const entries = Object.entries(ws);
+  countEl.textContent = entries.length;
+
+  if (entries.length === 0) {
+    container.innerHTML = '<p class="empty">No workspaces tracked</p>';
+    return;
+  }
+
+  container.innerHTML = entries
+    .sort((a, b) => new Date(b[1].lastActive) - new Date(a[1].lastActive))
+    .map(([, w]) => {
+      const wf = w.currentWorkflow;
+      const statusClass = wf?.status === 'in-progress' ? 'active' : wf?.status === 'completed' ? 'done' : 'idle';
+      return `
+        <div class="workspace-item ${statusClass}">
+          <div class="workspace-name">${w.name}</div>
+          <div class="workspace-meta">
+            ${wf ? `<span class="ws-workflow">${wf.objective?.substring(0, 40) || '—'}${wf.objective?.length > 40 ? '...' : ''}</span>` : '<span class="ws-workflow idle">No active workflow</span>'}
+            <span class="ws-progress">${wf?.progress || '—'}</span>
+            <span class="ws-last-active">${timeAgo(new Date(w.lastActive))}</span>
+          </div>
+        </div>`;
+    }).join('');
+}
+
+function timeAgo(date) {
+  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  return days + 'd ago';
 }
 
 function formatTokenCount(n) {

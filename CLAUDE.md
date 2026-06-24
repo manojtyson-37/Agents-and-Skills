@@ -65,6 +65,9 @@ All state lives in `.cso/state/`:
 - `task_history.jsonl` — append-only event log
 - `metrics.json` — performance metrics
 - `notifications.jsonl` — notification log
+- `inbox.json` — persistent task queue (carries forward across sessions)
+- `workspaces.json` — registry of all workspaces CSO has operated in
+- `pr-watchdog.json` — PR monitoring status (updated by scheduled agent)
 
 ## Skill Routing
 

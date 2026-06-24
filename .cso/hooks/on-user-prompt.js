@@ -10,6 +10,7 @@ const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
 async function onUserPrompt() {
   // Always inject CSO protocol first — must run regardless of prompt content
   injectCSOProtocol();
+  registerWorkspace();
 
   try {
     const rawInput = await readStdin();
@@ -154,6 +155,57 @@ function injectCSOProtocol() {
       }
     } catch {}
   }
+
+  // Surface inbox tasks
+  const inboxPath = path.join(STATE_DIR, 'inbox.json');
+  if (fs.existsSync(inboxPath)) {
+    try {
+      const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+      const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
+      if (pending.length > 0) {
+        console.log(`[CSO Inbox] ${pending.length} pending: ${pending.map(t => t.title).slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`);
+        console.log('[CSO Inbox] To manage: read/write /Users/manojaaa/Agents and Skills/.cso/state/inbox.json. Mark tasks done after completing.');
+      }
+    } catch {}
+  }
+}
+
+function registerWorkspace() {
+  const wsPath = path.join(STATE_DIR, 'workspaces.json');
+  const cwd = process.cwd();
+  const name = path.basename(cwd);
+
+  let registry = { version: 1, workspaces: {}, lastUpdated: null };
+  if (fs.existsSync(wsPath)) {
+    try { registry = JSON.parse(fs.readFileSync(wsPath, 'utf-8')); } catch {}
+  }
+
+  const existing = registry.workspaces[cwd] || {};
+  registry.workspaces[cwd] = {
+    name: existing.name || name,
+    path: cwd,
+    lastActive: new Date().toISOString(),
+    sessionCount: (existing.sessionCount || 0) + 1
+  };
+
+  // Snapshot current workflow status for this workspace
+  if (fs.existsSync(WORKFLOW_STATE)) {
+    try {
+      const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+      registry.workspaces[cwd].currentWorkflow = {
+        objective: state.objective,
+        status: state.status,
+        progress: `${(state.completedTasks || []).length}/${Object.keys(state.tasks || {}).length}`
+      };
+    } catch {}
+  }
+
+  registry.lastUpdated = new Date().toISOString();
+
+  if (!fs.existsSync(STATE_DIR)) {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+  }
+  fs.writeFileSync(wsPath, JSON.stringify(registry, null, 2));
 }
 
 onUserPrompt().catch(err => {
