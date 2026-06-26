@@ -42,6 +42,9 @@ async function onSessionEnd() {
       }
     }
 
+    // Check if learning pass was done
+    checkLearningPass();
+
     console.log('[CSO] Session end. State persisted.');
   } catch (error) {
     console.error('[CSO] Session end error:', error.message);
@@ -91,6 +94,49 @@ function saveIncompleteToInbox(state) {
   inbox.lastUpdated = new Date().toISOString();
   fs.writeFileSync(inboxPath, JSON.stringify(inbox, null, 2));
   console.log(`[CSO] Saved ${incompleteTasks.length} incomplete task(s) to inbox`);
+}
+
+function checkLearningPass() {
+  const feedbackLog = path.join(STATE_DIR, 'feedback.jsonl');
+  const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
+
+  // Count recent corrections
+  let corrections = 0;
+  if (fs.existsSync(feedbackLog)) {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const lines = fs.readFileSync(feedbackLog, 'utf-8').trim().split('\n').filter(Boolean);
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === 'dissatisfied' && entry.timestamp > twoHoursAgo) corrections++;
+      } catch {}
+    }
+  }
+
+  // Check if learning entries were logged
+  let learnings = 0;
+  if (fs.existsSync(decisionsLog)) {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const lines = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean);
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.decision && entry.decision.startsWith('Learning:') && entry.timestamp > twoHoursAgo) learnings++;
+      } catch {}
+    }
+  }
+
+  if (corrections > 0 && learnings === 0) {
+    console.log(`[CSO] ⚠️ SESSION ENDED WITHOUT LEARNING PASS: ${corrections} correction(s) detected but no learnings saved.`);
+    // Auto-log the failure
+    const entry = {
+      timestamp: new Date().toISOString(),
+      decision: 'FAILURE: Session ended without learning pass',
+      reason: `${corrections} corrections detected in feedback log but no Learning: entries in decisions.jsonl. Memory files may be stale.`,
+      persona: 'orchestrator'
+    };
+    fs.appendFileSync(decisionsLog, JSON.stringify(entry) + '\n');
+  }
 }
 
 onSessionEnd().catch(err => {
