@@ -18,3 +18,5 @@
 - [Sync Memory to Repo](feedback_sync_memory_to_repo.md) — Memory dir is not git-tracked; vendor to home-dotclaude/memory and commit after saving learnings.
 - [gstack](reference_gstack.md) — garrytan/gstack MIT installed non-team; eng-team slash-commands (/qa /cso-security /canary /ship); complements CSO. /cso = SECURITY not Chief-of-Staff.
 - [Route New Skills](feedback_route_new_skills.md) — Installing a skill ≠ CSO using it; must add to CLAUDE.md routing table (project+global).
+- [superpowers + claude-mem](reference_superpowers_claudemem.md) — superpowers=methodology/TDD, claude-mem=auto episodic memory; roles consolidated into CSO layers.
+- [Framework Sprawl](feedback_framework_sprawl.md) — More tools ≠ better; assign one owner per function, warn on context bloat, offer consolidate/hold.
