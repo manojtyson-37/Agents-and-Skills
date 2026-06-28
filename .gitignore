@@ -5,6 +5,9 @@ node_modules/
 .cso/meta.log
 .cso/dashboard.log
 .cso/state/archive/
-.mcp.json
 .claude/launch.json
 .claude/settings.local.json
+
+# Secrets — never commit. .mcp.json is now tracked but holds only ${VAR} placeholders.
+.env
+.env.local

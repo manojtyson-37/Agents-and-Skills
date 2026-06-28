@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "magic": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@21st-dev/magic@latest"],
+      "env": {
+        "API_KEY": "${MAGIC_API_KEY}"
+      }
+    },
+    "headroom": {
+      "command": "headroom",
+      "args": ["mcp"],
+      "env": {
+        "HEADROOM_CACHE_DIR": "${HOME}/.headroom/cache",
+        "HEADROOM_PRESERVE_ORIGINALS": "true"
+      }
+    }
+  }
+}

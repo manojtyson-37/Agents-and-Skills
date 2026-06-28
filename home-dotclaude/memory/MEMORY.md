@@ -1,0 +1,8 @@
+- [Chief of Staff Protocol](operating_protocol.md) — Master Agent Operating System. Plan-first, delegate-heavy, accountability on outcomes.
+- [Agent Framework](agent_framework.md) — Available agents and when to use each type.
+- [Working Style](working_preferences.md) — How user works, preferences, communication style.
+- [CSO Global Hooks](feedback_cso_global_hooks.md) — CSO hooks must fire globally across all workspaces, never guard by CWD.
+- [CSO Dashboard](project_cso_dashboard.md) — Dashboard architecture, state files, hooks pipeline, port 3000, auto-refresh.
+- [Always CSO Mode](feedback_always_respond_as_cso.md) — Never drop CSO protocol mid-conversation, user corrected this multiple times.
+- [No Fake Metrics](feedback_no_fake_metrics.md) — Never show hardcoded metrics as real data, user caught 65% fake compression.
+- [Existing Session Fixes](feedback_existing_session_fixes.md) — Fixes must work in running sessions via hooks, not just new sessions.
