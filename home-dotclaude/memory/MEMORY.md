@@ -16,3 +16,4 @@
 - [Time-box Optional Polish](feedback_timebox_optional_polish.md) — Ship core value first; one-shot quota-gated polish then stop. User hates time spent without output.
 - [CSO as LLM Backend](feedback_cso_as_llm_backend.md) — When a tool's LLM step is quota-gated/keyless, Claude does the semantic pass itself and writes the artifact (e.g. graphify labels).
 - [Sync Memory to Repo](feedback_sync_memory_to_repo.md) — Memory dir is not git-tracked; vendor to home-dotclaude/memory and commit after saving learnings.
+- [gstack](reference_gstack.md) — garrytan/gstack MIT installed non-team; eng-team slash-commands (/qa /cso-security /canary /ship); complements CSO. /cso = SECURITY not Chief-of-Staff.
