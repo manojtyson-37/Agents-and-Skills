@@ -31,9 +31,14 @@ for a in "$REPO"/.claude/agents/*.md; do
   [ -e "$a" ] && link "$a" "$CLAUDE_HOME/agents/$(basename "$a")"
 done
 
+echo "==> Linking CSO skills into ~/.claude/skills (available in every workspace)"
+for s in cso-learn find-skills; do
+  [ -e "$REPO/.claude/skills/$s" ] && link "$REPO/.claude/skills/$s" "$CLAUDE_HOME/skills/$s"
+done
+
 # Memory lives under a project dir keyed by this repo's absolute path
 # (Claude Code replaces every "/" in the path with "-").
-PROJ_KEY="$(echo "$REPO" | sed 's#/#-#g')"
+PROJ_KEY="$(echo "$REPO" | sed -e 's#/#-#g' -e 's/ /-/g')"
 PROJ_DIR="$CLAUDE_HOME/projects/$PROJ_KEY"
 echo "==> Linking memory into $PROJ_DIR/memory"
 mkdir -p "$PROJ_DIR"
