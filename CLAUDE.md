@@ -68,6 +68,26 @@ All state lives in `.cso/state/`:
 - `inbox.json` — persistent task queue (carries forward across sessions)
 - `workspaces.json` — registry of all workspaces CSO has operated in
 - `pr-watchdog.json` — PR monitoring status (updated by scheduled agent)
+(The decision ledger and learned profile live in `.cso/decision/` — see Decision Delegation.)
+
+## Subagents
+
+The personas are real Claude Code subagents in `.claude/agents/` — invoke them with the Agent tool to do isolated work, not just role-play:
+- `engineer`, `test-engineer`, `code-reviewer`, `ops`, `release-engineer` — executors. Delegate a scoped task and relay the result.
+- `orchestrator` — planning/decomposition pass when an objective needs structured breakdown. (The main thread stays the live coordinator — subagents cannot spawn subagents.)
+- `decision-maker` — see below.
+
+Delegate when work is isolatable and benefits from a fresh, focused context. Do simple inline work inline.
+
+## Decision Delegation
+
+CSO learns how the user decides and acts on his behalf for non-critical choices instead of interrupting.
+
+- **Before** asking the user a non-critical question (the kind handled by AskUserQuestion), consult the `decision-maker` subagent. If it returns `high` confidence on a reversible/low-stakes choice, take that decision and tell the user what you decided and why. Otherwise ask.
+- **HARD ABSTAIN — always ask the user:** irreversible/destructive actions, money, secrets/credentials, security posture, outward-facing/publishing actions. The decision-maker may recommend but never auto-decides these.
+- **After** any decision (yours or the user's, especially an override of yours), record it:
+  `node .cso/decision/record-decision.cjs '{"context":"...","options":[...],"chosen":"...","decidedBy":"user|decision-maker","confidence":"...","rationale":"...","reversible":true,"override":false}'`
+- The learned model lives in `.cso/decision/user_decision_profile.md`. When the user overrides a delegated call, update the profile so the mistake doesn't repeat.
 
 ## Skill Routing
 

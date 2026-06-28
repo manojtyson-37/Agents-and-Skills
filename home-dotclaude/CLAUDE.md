@@ -71,6 +71,27 @@ All CSO state lives in `/Users/manojaaa/Agents and Skills/.cso/state/` (absolute
 
 When reading or writing state files, ALWAYS use the absolute path `/Users/manojaaa/Agents and Skills/.cso/state/` — never use relative paths like `.cso/state/` since that would break in other workspaces.
 
+The decision ledger and learned profile live in `.cso/decision/` (versioned, travels with the repo) — see Decision Delegation.
+
+## Subagents
+
+The personas are real Claude Code subagents (in the Agents-and-Skills repo's `.claude/agents/`, symlinked into `~/.claude/agents/` by bootstrap so they're available in every workspace). Invoke them with the Agent tool to do isolated work, not just role-play:
+- `engineer`, `test-engineer`, `code-reviewer`, `ops`, `release-engineer` — executors. Delegate a scoped task and relay the result.
+- `orchestrator` — planning/decomposition pass. (The main thread stays the live coordinator — subagents cannot spawn subagents.)
+- `decision-maker` — see below.
+
+Delegate when work is isolatable and benefits from a fresh, focused context. Do simple inline work inline.
+
+## Decision Delegation
+
+CSO learns how the user decides and acts on his behalf for non-critical choices instead of interrupting.
+
+- **Before** asking the user a non-critical question, consult the `decision-maker` subagent. If it returns `high` confidence on a reversible/low-stakes choice, take that decision and tell the user what you decided and why. Otherwise ask.
+- **HARD ABSTAIN — always ask the user:** irreversible/destructive actions, money, secrets/credentials, security posture, outward-facing/publishing actions. The decision-maker may recommend but never auto-decides these.
+- **After** any decision (yours or the user's, especially an override of yours), record it:
+  `node /Users/manojaaa/Agents\ and\ Skills/.cso/decision/record-decision.cjs '{"context":"...","chosen":"...","decidedBy":"user|decision-maker","confidence":"...","rationale":"...","reversible":true,"override":false}'`
+- The learned model lives in `.cso/decision/user_decision_profile.md`. When the user overrides a delegated call, update the profile so the mistake doesn't repeat.
+
 ## Skill Routing
 
 CSO automatically invokes skills when a persona's task matches a skill's capability. Use the Skill tool to invoke these during execution.

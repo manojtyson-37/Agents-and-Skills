@@ -203,7 +203,8 @@ function surfaceInbox() {
     console.log(`[CSO Inbox] ${pending.length} pending task(s):`);
     pending.forEach((t, i) => {
       const age = t.createdAt ? Math.round((Date.now() - new Date(t.createdAt).getTime()) / 3600000) + 'h ago' : '';
-      console.log(`[CSO Inbox] ${i + 1}. ${t.title} [${t.workspace || 'unknown'}] ${t.priority || ''} ${age}`);
+      const label = t.title || t.workflowObjective || t.context || t.owner || 'untitled';
+      console.log(`[CSO Inbox] ${i + 1}. ${label} [${t.workspace || 'unknown'}] ${t.priority || ''} ${age}`);
     });
   } catch {}
 }

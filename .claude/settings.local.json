@@ -14,13 +14,9 @@
       "Bash(pkill -f \"cso-daemon.js\")",
       "Bash(node -e \"const fs = require\\('fs'\\); const state = JSON.parse\\(fs.readFileSync\\('/Users/manojaaa/Agents and Skills/.cso/state/workflow_state.json'\\)\\); state.tasks['task-2'].startedAt = new Date\\(\\).toISOString\\(\\); fs.writeFileSync\\('/Users/manojaaa/Agents and Skills/.cso/state/workflow_state.json', JSON.stringify\\(state, null, 2\\)\\); console.log\\('Updated task-2 startedAt to:', state.tasks['task-2'].startedAt\\);\")",
       "Bash(pkill -f \"until grep\")",
-      "Bash(chmod +x '/Users/manojaaa/Agents and Skills/.cso/meta/cso-meta-monitor.js')",
-      "Bash(nohup node .cso/meta/cso-meta-monitor.js)",
       "Bash(pkill -f \"until.*notifications.jsonl\")",
       "Bash(node .cso/daemon/cso-daemon.js)",
       "Bash(tee .cso/daemon.log)",
-      "Bash(node -e \"import\\('./cso/notifications/notifier.js'\\).then\\(m => console.log\\('✓ Imported:', Object.keys\\(m\\)\\)\\).catch\\(e => console.error\\('✗ Error:', e.message\\)\\)\")",
-      "Bash(node -e \"import\\('../notifications/notifier.js'\\).then\\(m => console.log\\('✓ Imported:', Object.keys\\(m\\)\\)\\).catch\\(e => console.error\\('✗ Error:', e.message\\)\\)\")",
       "Bash(node -e ' *)",
       "Bash(pkill -f \"dashboard/server.js\")",
       "Bash(node dashboard/server.js)",
@@ -35,7 +31,6 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/metrics)",
       "Bash(mkdir -p '/Users/manojaaa/Agents and Skills/.claude')",
       "mcp__Claude_Preview__preview_start",
-      "Bash(pkill -f \"cso-meta-monitor\")",
       "Bash(pkill -f \"cso-daemon\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); hooks=d.get\\('hooks',{}\\); [print\\(k,':',len\\(v.get\\('hooks',[]\\)\\) if isinstance\\(v,dict\\) else '?','hooks'\\) for k,v in hooks.items\\(\\)]\")",
       "Bash(python3 -c ' *)",
@@ -46,7 +41,11 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Status:', d['status']\\); print\\('Objective:', d['objective'][:80]\\); print\\('InProgress:', d.get\\('inProgressTask','none'\\)\\); print\\('Completed:', len\\(d.get\\('completedTasks',[]\\)\\)\\); print\\('Total tasks:', len\\(d.get\\('tasks',{}\\)\\)\\)\")",
       "Bash(node -c .cso/hooks/on-tool-output.js)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(gh pr *)",
+      "Bash(gh auth *)",
+      "Bash(claude mcp *)"
     ]
   }
 }

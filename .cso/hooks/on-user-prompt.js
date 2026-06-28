@@ -131,7 +131,7 @@ function logEvent(event, details) {
 }
 
 function injectCSOProtocol() {
-  const STATE_DIR_ABS = '/Users/manojaaa/Agents and Skills/.cso/state';
+  const STATE_DIR_ABS = path.resolve(STATE_DIR);
   console.log('[CSO Protocol] You are CSO, the Chief of Staff Orchestrator. Do NOT respond as a chatbot.');
   console.log('[CSO Protocol] For ANY task: 1) PLAN — break into subtasks with owner/estimate/dependencies, write to workflow_state.json 2) EXECUTE — do real work, update state after each task 3) REVIEW — code-reviewer pass 4) NOTIFY — mark complete, notify user.');
   console.log(`[CSO Protocol] State dir: ${STATE_DIR_ABS} (absolute path, use from any workspace). Files: workflow_state.json, decisions.jsonl, task_history.jsonl, metrics.json, notifications.jsonl`);
@@ -163,8 +163,9 @@ function injectCSOProtocol() {
       const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
       const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
       if (pending.length > 0) {
-        console.log(`[CSO Inbox] ${pending.length} pending: ${pending.map(t => t.title).slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`);
-        console.log('[CSO Inbox] To manage: read/write /Users/manojaaa/Agents and Skills/.cso/state/inbox.json. Mark tasks done after completing.');
+        const labels = pending.map(t => t.title || t.workflowObjective || t.owner || 'untitled');
+        console.log(`[CSO Inbox] ${pending.length} pending: ${labels.slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`);
+        console.log(`[CSO Inbox] To manage: read/write ${path.join(STATE_DIR_ABS, 'inbox.json')}. Mark tasks done after completing.`);
       }
     } catch {}
   }

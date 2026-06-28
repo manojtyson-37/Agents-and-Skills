@@ -26,6 +26,11 @@ link "$SRC/CSO_FRAMEWORK.md"           "$CLAUDE_HOME/CSO_FRAMEWORK.md"
 link "$SRC/agents/ui-ux-reviewer.md"   "$CLAUDE_HOME/agents/ui-ux-reviewer.md"
 link "$SRC/skills/ui-ux-pro-max"       "$CLAUDE_HOME/skills/ui-ux-pro-max"
 
+echo "==> Linking CSO subagents into ~/.claude/agents (available in every workspace)"
+for a in "$REPO"/.claude/agents/*.md; do
+  [ -e "$a" ] && link "$a" "$CLAUDE_HOME/agents/$(basename "$a")"
+done
+
 # Memory lives under a project dir keyed by this repo's absolute path
 # (Claude Code replaces every "/" in the path with "-").
 PROJ_KEY="$(echo "$REPO" | sed 's#/#-#g')"
@@ -43,6 +48,30 @@ add_mp "headroomlabs-ai/headroom"
 add_pl "caveman@caveman"
 add_pl "ponytail@ponytail"
 add_pl "headroom@headroom-marketplace"
+
+echo "==> Wiring CSO hooks into ~/.claude/settings.json (paths resolved to this repo)"
+HOOKS_DIR="$REPO/.cso/hooks"
+SETTINGS="$CLAUDE_HOME/settings.json" REPO="$REPO" node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const settingsPath = process.env.SETTINGS;
+const hooksDir = path.join(process.env.REPO, '.cso/hooks');
+const cmd = f => `node '${path.join(hooksDir, f)}'`;
+const one = (...files) => [{ hooks: files.map(f => ({ type: 'command', command: cmd(f) })) }];
+let s = {};
+try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
+s.hooks = Object.assign({}, s.hooks, {
+  UserPromptSubmit: one('on-user-prompt.js', 'on-user-feedback.js', 'on-learn-check.js'),
+  SessionStart:     one('on-session-start.js'),
+  SessionEnd:       one('on-session-end.js'),
+  PostToolUse:      one('on-tool-output.js'),
+  TaskCompleted:    one('on-task-complete.js'),
+});
+fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2) + '\n');
+console.log('    wired 5 hook events ->', hooksDir);
+NODE
+chmod +x "$HOOKS_DIR"/*.js "$REPO/.cso/daemon/cso-daemon.js" "$REPO/.cso/decision/record-decision.cjs" 2>/dev/null || true
 
 echo
 echo "==> Magic MCP key"

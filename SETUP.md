@@ -24,8 +24,22 @@ Then open the repo with Claude Code.
   - `agents/ui-ux-reviewer.md`
   - `skills/ui-ux-pro-max/`
   - `memory/` → `~/.claude/projects/<this-repo-path>/memory/`
+- Symlinks the CSO subagents (`.claude/agents/*.md`) into `~/.claude/agents/` so
+  they work in every workspace.
+- Wires the CSO hooks into `~/.claude/settings.json` with paths resolved to **this
+  repo** (no hardcoded user/path — works under any clone location or username).
 - Adds plugin marketplaces and installs **caveman**, **ponytail**, **headroom**.
 - Reminds you to set `MAGIC_API_KEY`.
+
+## Subagents & decision system
+- **Subagents** (`.claude/agents/`): `orchestrator`, `engineer`, `test-engineer`,
+  `code-reviewer`, `ops`, `release-engineer`, `decision-maker` — real Claude Code
+  agents CSO delegates to via the Agent tool.
+- **Decision-maker** learns how you decide. It reads
+  `.cso/decision/user_decision_profile.md` + the `.cso/state/decision_patterns.jsonl`
+  ledger, makes reversible/low-stakes calls on your behalf, and records every
+  decision (and override). Hard-abstains on irreversible/money/secret/outward-facing
+  choices. The profile + ledger are versioned, so the learning travels with the repo.
 
 Symlinks (not copies) mean edits you make on any machine stay versioned in git.
 
