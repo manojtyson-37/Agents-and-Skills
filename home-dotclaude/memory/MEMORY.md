@@ -24,3 +24,4 @@
 - [Decision Logging Cadence](feedback_decision_logging_cadence.md) — Log decisions.jsonl as they happen in-session, not backfilled at Complete.
 - [Bootstrap Drift](feedback_bootstrap_drift.md) — Rerun bootstrap.sh after adding agents/skills; verify global links with ls/readlink, don't trust CLAUDE.md claims.
 - [Preview Tool CWD](feedback_preview_tool_cwd.md) — preview_start is locked to session-root launch.json; use browse skill for other-project dev servers instead.
+- [Reference Prompts Scope](feedback_reference_prompts_scope.md) — Pasted reference prompts = study the technique by default, not "build this now" — check if ambiguous.
