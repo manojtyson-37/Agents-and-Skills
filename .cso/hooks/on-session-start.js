@@ -200,7 +200,12 @@ function surfaceLastSession() {
   try {
     const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean);
     if (!lines.length) return;
-    const last = JSON.parse(lines[lines.length - 1]);
+    const parsed = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    // Prefer the most recent RICH checkpoint; else the most recent meaningful (non-idle) entry; else the last.
+    const isMeaningful = e => (e.summary && e.summary.trim()) || (e.objective && !/^\(idle\)|^\(none\)/.test(e.objective));
+    const last = [...parsed].reverse().find(e => e.kind === 'rich')
+              || [...parsed].reverse().find(isMeaningful)
+              || parsed[parsed.length - 1];
     const when = last.timestamp ? new Date(last.timestamp).toISOString().slice(0, 16).replace('T', ' ') : '?';
     console.log(`[CSO] Last session (${when}): ${last.summary || last.objective || '(no summary)'}`);
     if (last.progress) console.log(`[CSO]   Progress: ${last.progress}${last.openTasks?.length ? ' | open: ' + last.openTasks.join(', ') : ''}`);

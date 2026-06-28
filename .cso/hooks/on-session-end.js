@@ -107,13 +107,34 @@ function writeSessionCheckpoint() {
     const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
     const inboxPath = path.join(STATE_DIR, 'inbox.json');
 
+    let lastTs = 0;
     // Skip auto if a rich checkpoint was written in the last 10 min (CSO already summarized).
     if (fs.existsSync(logPath)) {
       const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean);
       const last = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
-      if (last && last.kind === 'rich' && (Date.now() - new Date(last.timestamp).getTime()) < 10 * 60 * 1000) {
-        return;
+      if (last) {
+        lastTs = new Date(last.timestamp).getTime() || 0;
+        if (last.kind === 'rich' && (Date.now() - lastTs) < 10 * 60 * 1000) return;
       }
+    }
+
+    // Skip idle/empty sessions: don't spam "(idle)" checkpoints that bury meaningful ones.
+    // Only checkpoint if there's an active workflow OR a new decision since the last checkpoint.
+    let activeWorkflow = false;
+    if (fs.existsSync(WORKFLOW_STATE)) {
+      const s0 = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+      const obj = (s0.objective || '').toLowerCase();
+      activeWorkflow = (s0.status === 'in-progress' || s0.status === 'active') &&
+                       obj && obj !== '(idle)' && obj !== '(none)';
+    }
+    let newDecisionSince = false;
+    if (fs.existsSync(decisionsLog)) {
+      const dl = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean);
+      const lastD = dl.length ? JSON.parse(dl[dl.length - 1]) : null;
+      if (lastD && (new Date(lastD.timestamp).getTime() || 0) > lastTs) newDecisionSince = true;
+    }
+    if (!activeWorkflow && !newDecisionSince) {
+      return; // nothing happened this session — no checkpoint
     }
 
     let objective = '(none)', status = 'idle', completed = 0, total = 0, open = [];
