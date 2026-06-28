@@ -20,3 +20,4 @@
 - [Route New Skills](feedback_route_new_skills.md) — Installing a skill ≠ CSO using it; must add to CLAUDE.md routing table (project+global).
 - [superpowers + claude-mem](reference_superpowers_claudemem.md) — superpowers=methodology/TDD, claude-mem=auto episodic memory; roles consolidated into CSO layers.
 - [Framework Sprawl](feedback_framework_sprawl.md) — More tools ≠ better; assign one owner per function, warn on context bloat, offer consolidate/hold.
+- [Session Continuity](feedback_session_continuity.md) — Logged≠remembered; session_log.jsonl checkpoints + claude-mem carry narrative across sessions. Write rich checkpoint at Complete.
