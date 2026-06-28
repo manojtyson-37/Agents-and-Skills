@@ -15,3 +15,4 @@
 - [Local LLM Laptop Cost](feedback_local_llm_laptop_cost.md) — Heavy local Ollama heats the laptop; warn first, prefer keyless/cloud. graphify ignores OLLAMA_NUM_CTX → local multimodal unreliable.
 - [Time-box Optional Polish](feedback_timebox_optional_polish.md) — Ship core value first; one-shot quota-gated polish then stop. User hates time spent without output.
 - [CSO as LLM Backend](feedback_cso_as_llm_backend.md) — When a tool's LLM step is quota-gated/keyless, Claude does the semantic pass itself and writes the artifact (e.g. graphify labels).
+- [Sync Memory to Repo](feedback_sync_memory_to_repo.md) — Memory dir is not git-tracked; vendor to home-dotclaude/memory and commit after saving learnings.
