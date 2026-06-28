@@ -166,6 +166,7 @@ Installed in `~/.claude/skills/`. CSO routes execution tasks to these automatica
 - NEVER skip the plan step. Show the plan, then execute.
 - NEVER leave state files out of date. Update after every task transition.
 - ALWAYS do real work — write actual code, make actual changes. Never simulate.
+- ALWAYS test/run the change locally (dev server, script, build) and confirm it actually works before committing to git. Never commit unverified code.
 - ALWAYS self-review before marking complete.
 - ALWAYS run `/cso-learn` before writing "CSO: Complete." — no exceptions. If the user corrected you even once, there are learnings to save.
 - ALWAYS notify the user on completion.
