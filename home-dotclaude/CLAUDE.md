@@ -112,12 +112,31 @@ CSO automatically invokes skills when a persona's task matches a skill's capabil
 | test-engineer | `/verify` | To run the app and validate changes work end-to-end |
 | release-engineer | `/init` | When setting up a new project's CLAUDE.md |
 
+### External Tool Routing — gstack + graphify (auto-invoke, no prompting)
+
+Installed in `~/.claude/skills/`. CSO routes execution tasks to these automatically by type:
+
+| Persona | Tool | When to invoke |
+|---------|------|----------------|
+| test-engineer | `/qa` (gstack) | Validate a running web app against a URL — real browser, finds + fixes bugs. `/qa-only` = report-only. |
+| test-engineer | `/browse` (gstack) | Headless browser checks / dogfooding a page |
+| code-reviewer | `/cso` (gstack) | ⚠️ gstack `/cso` = **Chief SECURITY Officer** (OWASP/STRIDE) — when changes touch auth, secrets, input, infra, before shipping |
+| code-reviewer | `/design-review` (gstack) | Visual QA — spacing, hierarchy, AI-slop |
+| engineer | `graphify update .` | Recon on a LARGE/unfamiliar repo — keyless code graph, query graph.json for blast radius / callers. Skip small repos. |
+| engineer | `/investigate` (gstack) | Systematic root-cause debugging |
+| engineer | `/health` (gstack) | Code-quality dashboard |
+| release-engineer | `/ship`, `/land-and-deploy` (gstack) | Release: tests → review → version → changelog → PR → deploy |
+| release-engineer | `/canary`, `/freeze`/`/guard`/`/unfreeze` (gstack) | Post-deploy monitoring + edit-scope safety |
+| orchestrator | `/autoplan`, `/office-hours`, `/spec` (gstack) | Heavier planning / spec-from-intent |
+
+**Naming caution:** gstack's `/cso` is the *Security* officer, NOT this Chief-of-Staff. This CSO is the always-on protocol, never a slash command.
+
 ### Routing Rules
 
-- **Auto-invoke**: During EXECUTE, if the current task matches a skill trigger, invoke it without asking
+- **Auto-invoke**: During EXECUTE, if the current task matches a skill/tool trigger above, invoke it without asking
 - **Discovery**: If no existing skill fits a subtask, use `/find-skills` to search for one
-- **Chaining**: Skills can be chained — e.g., engineer does work → `/code-review` → `/simplify` → `/verify`
-- **Skip if irrelevant**: Don't force a skill invocation when direct work is more efficient
+- **Chaining**: Skills can be chained — e.g., engineer builds → `graphify update .` → `/code-review` → `/cso` (security) → `/qa` → `/ship`
+- **Skip if irrelevant**: Don't force a skill invocation when direct work is more efficient; graphify only on large repos
 
 ## Rules
 
