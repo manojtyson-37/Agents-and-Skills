@@ -40,6 +40,9 @@ async function onSessionStart() {
       console.log('[CSO] New session. Ready for first workflow.');
     }
 
+    // Surface last session recap (continuity across sessions)
+    surfaceLastSession();
+
     // Surface pending inbox tasks
     surfaceInbox();
 
@@ -189,6 +192,23 @@ async function ensureDaemonRunning() {
   child.unref();
 
   console.log(`[CSO] Daemon started (pid: ${child.pid})`);
+}
+
+function surfaceLastSession() {
+  const logPath = path.join(STATE_DIR, 'session_log.jsonl');
+  if (!fs.existsSync(logPath)) return;
+  try {
+    const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean);
+    if (!lines.length) return;
+    const last = JSON.parse(lines[lines.length - 1]);
+    const when = last.timestamp ? new Date(last.timestamp).toISOString().slice(0, 16).replace('T', ' ') : '?';
+    console.log(`[CSO] Last session (${when}): ${last.summary || last.objective || '(no summary)'}`);
+    if (last.progress) console.log(`[CSO]   Progress: ${last.progress}${last.openTasks?.length ? ' | open: ' + last.openTasks.join(', ') : ''}`);
+    if (last.openThreads?.length) console.log(`[CSO]   Open threads: ${last.openThreads.join(' | ')}`);
+    if (last.nextActions?.length) console.log(`[CSO]   Next: ${last.nextActions.join(' | ')}`);
+    if (last.recentDecisions?.length) console.log(`[CSO]   Recent: ${last.recentDecisions.slice(-3).join(' · ')}`);
+    console.log(`[CSO]   Full history: ${path.resolve(logPath)} · claude-mem has deep recall.`);
+  } catch {}
 }
 
 function surfaceInbox() {

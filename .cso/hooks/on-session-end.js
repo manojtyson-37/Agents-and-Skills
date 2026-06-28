@@ -45,6 +45,9 @@ async function onSessionEnd() {
     // Check if learning pass was done
     checkLearningPass();
 
+    // Write an auto session checkpoint so the NEXT session has continuity
+    writeSessionCheckpoint();
+
     console.log('[CSO] Session end. State persisted.');
   } catch (error) {
     console.error('[CSO] Session end error:', error.message);
@@ -94,6 +97,61 @@ function saveIncompleteToInbox(state) {
   inbox.lastUpdated = new Date().toISOString();
   fs.writeFileSync(inboxPath, JSON.stringify(inbox, null, 2));
   console.log(`[CSO] Saved ${incompleteTasks.length} incomplete task(s) to inbox`);
+}
+
+function writeSessionCheckpoint() {
+  // Deterministic auto-summary appended every session so the next one resumes with context.
+  // A richer narrative checkpoint may already have been written by CSO at "Complete" (kind:"rich").
+  try {
+    const logPath = path.join(STATE_DIR, 'session_log.jsonl');
+    const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
+    const inboxPath = path.join(STATE_DIR, 'inbox.json');
+
+    // Skip auto if a rich checkpoint was written in the last 10 min (CSO already summarized).
+    if (fs.existsSync(logPath)) {
+      const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean);
+      const last = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
+      if (last && last.kind === 'rich' && (Date.now() - new Date(last.timestamp).getTime()) < 10 * 60 * 1000) {
+        return;
+      }
+    }
+
+    let objective = '(none)', status = 'idle', completed = 0, total = 0, open = [];
+    if (fs.existsSync(WORKFLOW_STATE)) {
+      const s = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+      objective = s.objective || objective;
+      status = s.status || status;
+      completed = (s.completedTasks || []).length;
+      total = Object.keys(s.tasks || {}).length;
+      open = Object.entries(s.tasks || {}).filter(([, t]) => t.status !== 'completed').map(([k]) => k);
+    }
+
+    // last 8 decisions for the trail
+    let decisions = [];
+    if (fs.existsSync(decisionsLog)) {
+      decisions = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean)
+        .slice(-8).map(l => { try { return JSON.parse(l).decision; } catch { return null; } }).filter(Boolean);
+    }
+
+    let openInbox = 0;
+    if (fs.existsSync(inboxPath)) {
+      try { openInbox = (JSON.parse(fs.readFileSync(inboxPath, 'utf-8')).tasks || []).filter(t => t.status === 'pending').length; } catch {}
+    }
+
+    const entry = {
+      kind: 'auto',
+      timestamp: new Date().toISOString(),
+      objective, status,
+      progress: `${completed}/${total}`,
+      openTasks: open,
+      openInbox,
+      recentDecisions: decisions,
+    };
+    fs.appendFileSync(logPath, JSON.stringify(entry) + '\n');
+    console.log('[CSO] Session checkpoint written -> session_log.jsonl');
+  } catch (e) {
+    console.error('[CSO] checkpoint error:', e.message);
+  }
 }
 
 function checkLearningPass() {

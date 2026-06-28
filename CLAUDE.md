@@ -49,6 +49,7 @@ After all subtasks complete:
 ### 4. NOTIFY
 - Update `workflow_state.json` → status: completed
 - Call notifier to write to `notifications.jsonl`
+- **Write a session checkpoint** (continuity): `node .cso/checkpoint/log-session.cjs '{"summary":"what happened","openThreads":["dangling items"],"nextActions":["do next"]}'` — so the NEXT session resumes with full context, not just state files. The SessionEnd hook writes an auto-checkpoint as fallback; this rich one is better.
 - Tell the user: what was done, what changed, what to verify
 
 ## Response Format
