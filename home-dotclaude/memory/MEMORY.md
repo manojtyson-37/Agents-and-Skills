@@ -6,3 +6,12 @@
 - [Always CSO Mode](feedback_always_respond_as_cso.md) — Never drop CSO protocol mid-conversation, user corrected this multiple times.
 - [No Fake Metrics](feedback_no_fake_metrics.md) — Never show hardcoded metrics as real data, user caught 65% fake compression.
 - [Existing Session Fixes](feedback_existing_session_fixes.md) — Fixes must work in running sessions via hooks, not just new sessions.
+- [Public Repo Secret Handling](feedback_public_repo_secret_handling.md) — Check repo visibility before committing config; never commit keys, use ${VAR} placeholders + .env.
+- [CSO Decision System](project_cso_decision_system.md) — Real subagents in .claude/agents + learning decision-maker; .cso/decision tracked, .cso/state gitignored.
+- [Repo ESM Scripts](feedback_repo_esm_scripts.md) — Root is type=module; standalone node scripts must be .cjs or they crash on require().
+- [CSO Research Protocol](feedback_cso_research_protocol.md) — "research" = public repos + web + Claude KB, security-screen, rank top 3 with reasons.
+- [Codebase Graph Tools](reference_codebase_graph_tools.md) — Top 3 code-graph tools: Graphify, CodeGraph, Serena (MIT/local). GitNexus disqualified (noncommercial). Graphify trialed in Silaa.
+- [Safe Tool Trials](feedback_safe_tool_trials.md) — Trial code-indexing tools keyless-first, check secret leak, gitignore output, flag installer side-effects, scope before global.
+- [Local LLM Laptop Cost](feedback_local_llm_laptop_cost.md) — Heavy local Ollama heats the laptop; warn first, prefer keyless/cloud. graphify ignores OLLAMA_NUM_CTX → local multimodal unreliable.
+- [Time-box Optional Polish](feedback_timebox_optional_polish.md) — Ship core value first; one-shot quota-gated polish then stop. User hates time spent without output.
+- [CSO as LLM Backend](feedback_cso_as_llm_backend.md) — When a tool's LLM step is quota-gated/keyless, Claude does the semantic pass itself and writes the artifact (e.g. graphify labels).
