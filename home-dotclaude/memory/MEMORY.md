@@ -17,3 +17,4 @@
 - [CSO as LLM Backend](feedback_cso_as_llm_backend.md) — When a tool's LLM step is quota-gated/keyless, Claude does the semantic pass itself and writes the artifact (e.g. graphify labels).
 - [Sync Memory to Repo](feedback_sync_memory_to_repo.md) — Memory dir is not git-tracked; vendor to home-dotclaude/memory and commit after saving learnings.
 - [gstack](reference_gstack.md) — garrytan/gstack MIT installed non-team; eng-team slash-commands (/qa /cso-security /canary /ship); complements CSO. /cso = SECURITY not Chief-of-Staff.
+- [Route New Skills](feedback_route_new_skills.md) — Installing a skill ≠ CSO using it; must add to CLAUDE.md routing table (project+global).
