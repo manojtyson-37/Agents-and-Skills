@@ -8,13 +8,16 @@ const STATE_DIR = path.join(__dirname, '../state');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
 
 async function onUserPrompt() {
-  // Always inject CSO protocol first — must run regardless of prompt content
-  injectCSOProtocol();
+  const rawInput = await readStdin();
+  // Token-efficiency fix (2026-06-30): the full protocol block is ~700+ tokens and used
+  // to fire on every single prompt unconditionally — a 15-turn session repeated it 15
+  // times verbatim for zero added information after the first. Now: full block once per
+  // session (tracked via a marker file keyed by session_id), compact one-liner after.
+  const sessionId = extractSessionId(rawInput);
+  injectCSOProtocol(sessionId);
   registerWorkspace();
 
   try {
-    const rawInput = await readStdin();
-
     if (!rawInput || rawInput.length < 5) {
       return;
     }
@@ -85,6 +88,15 @@ async function onUserPrompt() {
   }
 }
 
+function extractSessionId(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed.session_id || null;
+  } catch {
+    return null;
+  }
+}
+
 function extractPromptText(raw) {
   try {
     const parsed = JSON.parse(raw);
@@ -130,14 +142,54 @@ function logEvent(event, details) {
   );
 }
 
-function injectCSOProtocol() {
+function shouldShowFullProtocol(sessionId) {
+  if (!sessionId) return true; // no session id -> can't dedupe safely, fail toward showing it
+  const markerDir = path.join(STATE_DIR, '.protocol-shown');
+  // Sanitize before using as a filename — session_id format isn't contractually
+  // guaranteed to be a clean UUID forever, and other hooks in this dir already prune by
+  // mtime (on-stop-gate.js, on-learn-check.js precedent) so this dir shouldn't be the
+  // one place that grows unbounded across months of sessions.
+  const safeId = String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_');
+  try {
+    if (!fs.existsSync(markerDir)) fs.mkdirSync(markerDir, { recursive: true });
+    pruneOldMarkers(markerDir);
+    const markerPath = path.join(markerDir, safeId);
+    if (fs.existsSync(markerPath)) return false;
+    fs.writeFileSync(markerPath, new Date().toISOString());
+    return true;
+  } catch {
+    return true; // can't track -> safer to over-show than silently under-inform
+  }
+}
+
+function pruneOldMarkers(markerDir) {
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  try {
+    for (const f of fs.readdirSync(markerDir)) {
+      const p = path.join(markerDir, f);
+      try { if (fs.statSync(p).mtimeMs < sevenDaysAgo) fs.unlinkSync(p); } catch {}
+    }
+  } catch {}
+}
+
+function injectCSOProtocol(sessionId) {
   const STATE_DIR_ABS = path.resolve(STATE_DIR);
-  console.log('[CSO Protocol] You are CSO, the Chief of Staff Orchestrator. Do NOT respond as a chatbot.');
-  console.log('[CSO Protocol] For ANY task: 1) PLAN — break into subtasks with owner/estimate/dependencies, write to workflow_state.json 2) EXECUTE — do real work, update state after each task 3) REVIEW — code-reviewer pass 4) NOTIFY — mark complete, notify user.');
-  console.log(`[CSO Protocol] State dir: ${STATE_DIR_ABS} (absolute path, use from any workspace). Files: workflow_state.json, decisions.jsonl, task_history.jsonl, metrics.json, notifications.jsonl`);
-  console.log('[CSO Protocol] Personas: engineer | test-engineer | code-reviewer | orchestrator | ops | release-engineer');
-  console.log('[CSO Protocol] Skill routing: code-reviewer→/code-review,/security-review | engineer→/improve-codebase-architecture,/simplify,/verify | orchestrator→/cso-learn(MANDATORY before Complete),/find-skills,/grill-me | test-engineer→/verify | release-engineer→/init. Auto-invoke matching skills during EXECUTE. Use /find-skills if no skill fits.');
-  console.log('[CSO Protocol] Format: "CSO: [objective]" then plan, then execute, then "CSO: Complete." with summary.');
+
+  if (shouldShowFullProtocol(sessionId)) {
+    console.log('[CSO Protocol] You are CSO, the Chief of Staff Orchestrator. Do NOT respond as a chatbot.');
+    console.log('[CSO Protocol] For ANY task: 1) PLAN — break into subtasks with owner/estimate/dependencies, write to workflow_state.json 2) EXECUTE — do real work, update state after each task 3) REVIEW — code-reviewer pass 4) NOTIFY — mark complete, notify user.');
+    console.log(`[CSO Protocol] State dir: ${STATE_DIR_ABS} (absolute path, use from any workspace). Files: workflow_state.json, decisions.jsonl, task_history.jsonl, metrics.json, notifications.jsonl`);
+    console.log('[CSO Protocol] Personas: engineer | test-engineer | code-reviewer | orchestrator | ops | release-engineer');
+    console.log('[CSO Protocol] Skill routing: code-reviewer→/code-review,/security-review | engineer→/improve-codebase-architecture,/simplify,/verify | orchestrator→/cso-learn(MANDATORY before Complete),/find-skills,/grill-me | test-engineer→/verify | release-engineer→/init. Auto-invoke matching skills during EXECUTE. Use /find-skills if no skill fits.');
+    console.log('[CSO Protocol] Format: "CSO: [objective]" then plan, then execute, then "CSO: Complete." with summary.');
+  } else {
+    // Keep the MANDATORY /cso-learn reminder even in the compact form — this exact
+    // instruction was the one CLAUDE.md flagged as having zero real compliance before
+    // today's Stop-hook gate; dropping it from 14 of every 15 prompts would plausibly
+    // make that worse, not better. Routing table detail is fine to drop (recoverable by
+    // reading CLAUDE.md), this is not.
+    console.log('[CSO] protocol active (plan→execute→review→notify; personas: engineer/test-engineer/code-reviewer/orchestrator/ops/release-engineer) — /cso-learn MANDATORY before "CSO: Complete."');
+  }
 
   // Also inject current workflow status if one exists
   if (fs.existsSync(WORKFLOW_STATE)) {
