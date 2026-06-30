@@ -28,3 +28,4 @@
 - [Unused Routing Table](feedback_unused_routing_table.md) — 5/7 agents + ~14 skills had zero invocations ever; prose CLAUDE.md gate failed same-day, superseded by real hook.
 - [Hook Hard Enforcement](feedback_hook_hard_enforcement.md) — CLAUDE.md prose rules get ignored under pressure; only a blocking Stop hook is real enforcement.
 - [CSO Reliability Gaps](project_cso_reliability_gaps.md) — workflow_state/metrics decorative, inbox dead 57h+, 5/7 agents never invoked ever. Trust in-session work, not cross-session tracking.
+- [Real Review Pattern](feedback_real_review_pattern.md) — confirmed good: every code-reviewer dispatch this session found a real bug. Keep dispatching for real, context-rich prompts, never skip.
