@@ -76,13 +76,18 @@ async function archiveCompletedWorkflow() {
 
   const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
 
-  // Archive if completed OR stale (not updated in 24h and stuck in-progress)
+  // Archive if completed OR stale (no real activity in 24h and stuck in-progress).
+  // lastSavedAt is NOT used for this clock: on-session-end.js bumps it every single
+  // session regardless of whether the content actually changed, which silently defeated
+  // this check (a workflow frozen since 2026-06-28 with tasks:{} never archived because
+  // its "freshness" timestamp kept getting refreshed for free). Use real task_history.jsonl
+  // activity instead — same ground-truth source the dashboard now uses.
   if (state.status !== 'completed') {
-    const lastTouch = state.lastSavedAt || state.startedAt;
+    const lastTouch = lastRealActivity() || state.startedAt;
     if (!lastTouch) return;
     const hoursSinceUpdate = (Date.now() - new Date(lastTouch).getTime()) / 3600000;
     if (hoursSinceUpdate < 24) return;
-    console.log(`[CSO] Stale workflow detected (${Math.round(hoursSinceUpdate)}h inactive). Archiving...`);
+    console.log(`[CSO] Stale workflow detected (${Math.round(hoursSinceUpdate)}h since real activity). Archiving...`);
     state.status = 'abandoned';
     state.abandonedAt = new Date().toISOString();
   }
@@ -121,6 +126,27 @@ async function archiveCompletedWorkflow() {
   }
 
   console.log('[CSO] State reset for new workflow.');
+}
+
+function lastRealActivity() {
+  const historyFile = path.join(STATE_DIR, 'task_history.jsonl');
+  if (!fs.existsSync(historyFile)) return null;
+  try {
+    const lines = fs.readFileSync(historyFile, 'utf-8').trim().split('\n').filter(Boolean);
+    let latest = null;
+    let latestMs = -Infinity;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const ts = e.timestamp || e.ts;
+        const ms = ts ? Date.parse(ts) : NaN;
+        if (!Number.isNaN(ms) && ms > latestMs) { latestMs = ms; latest = ts; }
+      } catch {}
+    }
+    return latest;
+  } catch {
+    return null;
+  }
 }
 
 function isPortInUse(port) {
