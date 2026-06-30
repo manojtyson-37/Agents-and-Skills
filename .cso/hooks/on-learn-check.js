@@ -51,7 +51,7 @@ function getRecentCorrections() {
 function checkMemoryUpdated() {
   // Check all possible project memory directories
   const cwd = process.cwd();
-  const projectKey = cwd.replace(/\//g, '-').replace(/^-/, '');
+  const projectKey = cwd.replace(/[\/ ]/g, '-');
   const memoryDir = path.join(
     process.env.HOME || '/Users/manojaaa',
     '.claude/projects',

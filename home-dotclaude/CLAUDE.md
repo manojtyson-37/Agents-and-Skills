@@ -153,12 +153,32 @@ Installed in `~/.claude/skills/`. CSO routes execution tasks to these automatica
 
 **Methodology precedence:** core build loop = superpowers (TDD/subagent/verify); gstack `/plan-*-review` only for extra role-specific review passes.
 
+### Routing Enforcement (HARD GATE — audit found tables were ignored)
+
+A 2026-06-30 audit of `.cso/state/decisions.jsonl` + `task_history.jsonl` showed 5 of 7 agents (`code-reviewer`, `decision-maker`, `ops`, `release-engineer`, `test-engineer`) and ~14 of the routing-table skills (`/cso-learn`, `/find-skills`, `/code-review`, `/verify`, `/qa`, `/grill-me`, etc.) had **zero invocations ever**, despite being marked mandatory or auto-invoke. The table was read but not acted on.
+
+To stop this recurring:
+- **No task with no clear owner-skill match may skip `/find-skills`.** If you're about to build something with no existing skill/agent mapped to it, call `/find-skills` first and log the outcome (found X / none found, building inline) to `decisions.jsonl`. Skipping this on an unmapped task is itself a protocol violation.
+- **No "CSO: Complete." may be written without a `decisions.jsonl` entry showing `/cso-learn` ran.** If the entry isn't there, the skill wasn't actually called — go call it before declaring done.
+- **REVIEW phase must show real code-reviewer agent or `/code-review` skill output**, not a self-graded "looks good." If you skip it, say so explicitly and why — don't silently omit.
+- Periodically (when the user asks, or every few sessions) re-run the audit: grep agent/skill names across `decisions.jsonl`, `task_history.jsonl`, `session_log.jsonl`. Anything still at zero after being marked mandatory gets flagged to the user as dead weight — either start using it or remove it from the table. A routing table nobody follows is worse than no table.
+
+**This prose section was added 2026-06-30 and changed nothing** — same-day re-audit found the same 5 agents and 7 skills still at zero. Prose rules get read once and dropped under task pressure; they are not enforcement. The actual enforcement is a `Stop` hook (`.cso/hooks/on-stop-gate.js`, wired in `~/.claude/settings.json`) that returns `{"decision":"block"}` and prevents the turn from ending if `feedback.jsonl` shows a correction this session with no matching memory-file write or `/cso-learn` decisions.jsonl entry. `on-learn-check.js` (UserPromptSubmit) only prints a warning the model can ignore — keep it as an early nudge, but treat the Stop hook as the real gate. Don't "fix" future enforcement gaps by adding more CLAUDE.md text; add a hook that can actually block.
+
 ### Routing Rules
 
 - **Auto-invoke**: During EXECUTE, if the current task matches a skill/tool trigger above, invoke it without asking
 - **Discovery**: If no existing skill fits a subtask, use `/find-skills` to search for one
 - **Chaining**: Skills can be chained — e.g., engineer builds → `graphify update .` → `/code-review` → `/cso` (security) → `/qa` → `/ship`
 - **Skip if irrelevant**: Don't force a skill invocation when direct work is more efficient; graphify only on large repos
+
+## Git Identity Routing (decide, don't ask)
+
+Two GitHub accounts, switched via `gh auth switch -u <username>`:
+- **travel kathegalu** project/folder → `gh auth switch -u travelkathegalu` before pushing.
+- **Everything else** (e.g. Expense Tracker, manojtyson-37-owned repos) → `gh auth switch -u manojtyson-37` before pushing.
+
+Pick the account from the repo/folder context per the mapping above before any `git push`. Don't ask the user which account to use.
 
 ## Rules
 

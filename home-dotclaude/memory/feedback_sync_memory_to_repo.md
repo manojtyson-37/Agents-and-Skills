@@ -26,3 +26,13 @@ repo was clean but stale. Learnings must be in git to survive and to travel via 
 **How to apply:** Treat "save a learning" as incomplete until vendored + pushed. Consider
 doing the sync as part of the cso-learn / end-of-session flow. See
 [[project_cso_decision_system]].
+
+**Recurrence 2026-06-30:** the cwd→projectKey conversion bug (path has a literal space —
+"Agents and Skills" — that must become "Agents-and-Skills" to match the real memory dir,
+not just slashes→dashes) was independently re-introduced in `.cso/hooks/on-learn-check.js`
+and in a brand-new hook `.cso/hooks/on-stop-gate.js` written the same session. Both always
+resolved to a nonexistent memory directory and silently returned "no memory update found,"
+causing false-positive LEARNING PASS OVERDUE warnings on every prompt. Fixed both to
+`cwd.replace(/[\/ ]/g, '-')`. This conversion is duplicated in 2+ files with no shared
+helper — if a third hook ever computes a project memory path, copy the fixed regex, don't
+re-derive it from `cwd.replace(/\//g, '-')`.

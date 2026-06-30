@@ -25,3 +25,5 @@
 - [Bootstrap Drift](feedback_bootstrap_drift.md) — Rerun bootstrap.sh after adding agents/skills; verify global links with ls/readlink, don't trust CLAUDE.md claims.
 - [Preview Tool CWD](feedback_preview_tool_cwd.md) — preview_start is locked to session-root launch.json; use browse skill for other-project dev servers instead.
 - [Reference Prompts Scope](feedback_reference_prompts_scope.md) — Pasted reference prompts = study the technique by default, not "build this now" — check if ambiguous.
+- [Unused Routing Table](feedback_unused_routing_table.md) — 5/7 agents + ~14 skills had zero invocations ever; prose CLAUDE.md gate failed same-day, superseded by real hook.
+- [Hook Hard Enforcement](feedback_hook_hard_enforcement.md) — CLAUDE.md prose rules get ignored under pressure; only a blocking Stop hook is real enforcement.

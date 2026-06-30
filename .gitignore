@@ -11,3 +11,4 @@ node_modules/
 # Secrets — never commit. .mcp.json is now tracked but holds only ${VAR} placeholders.
 .env
 .env.local
+.gstack/
