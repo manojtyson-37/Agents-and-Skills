@@ -251,12 +251,33 @@ function surfaceInbox() {
     const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
     if (pending.length === 0) return;
 
-    console.log(`[CSO Inbox] ${pending.length} pending task(s):`);
-    pending.forEach((t, i) => {
+    // Group by workflowId: a single workflow's task breakdown (e.g. 5 subtasks owned by
+    // engineer/code-reviewer/release-engineer) all share workflowObjective text and used
+    // to print as 5 apparently-identical lines — looked like unreviewed duplicate data,
+    // wasn't. Real fix is showing it as what it is: one workflow, N subtasks, who owns
+    // each — not deleting/merging the underlying distinct subtask records.
+    // Group ONLY by workflowId (falling back to per-task id, never to free-text fields)
+    // — code-reviewer caught that grouping by title/workflowObjective could silently
+    // merge two genuinely unrelated tasks that happen to share display text, dropping
+    // one from view entirely. title/workflowObjective are for display only, never identity.
+    const groups = new Map();
+    for (const t of pending) {
+      const key = t.workflowId || t.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t);
+    }
+
+    console.log(`[CSO Inbox] ${pending.length} pending task(s) in ${groups.size} workflow(s):`);
+    let i = 0;
+    for (const tasks of groups.values()) {
+      i++;
+      const t = tasks[0];
       const age = t.createdAt ? Math.round((Date.now() - new Date(t.createdAt).getTime()) / 3600000) + 'h ago' : '';
       const label = t.title || t.workflowObjective || t.context || t.owner || 'untitled';
-      console.log(`[CSO Inbox] ${i + 1}. ${label} [${t.workspace || 'unknown'}] ${t.priority || ''} ${age}`);
-    });
+      const owners = [...new Set(tasks.map(x => x.owner).filter(Boolean))];
+      const ownerStr = tasks.length > 1 ? ` (${tasks.length} subtasks: ${owners.join(', ')})` : '';
+      console.log(`[CSO Inbox] ${i}. ${label}${ownerStr} [${t.workspace || 'unknown'}] ${t.priority || ''} ${age}`);
+    }
   } catch {}
 }
 
