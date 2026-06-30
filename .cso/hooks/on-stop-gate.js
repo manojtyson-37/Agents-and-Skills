@@ -19,6 +19,8 @@ const STATE_DIR = path.join(__dirname, '../state');
 const FEEDBACK_LOG = path.join(STATE_DIR, 'feedback.jsonl');
 const DECISIONS_LOG = path.join(STATE_DIR, 'decisions.jsonl');
 const REPO_ROOT = process.cwd();
+const SMALL_CHANGE_MAX_LINES = 15;
+const SMALL_CHANGE_MAX_FILES = 1;
 
 async function main() {
   try {
@@ -33,21 +35,29 @@ async function main() {
     const sessionStart = Date.now() - 2 * 60 * 60 * 1000; // 2h lookback window
     const dispatchedPersonas = transcriptDispatchedPersonas(input.transcript_path, sessionStart);
 
+    // First gate: learning pass overdue. BUG FIXED 2026-06-30: this used to be
+    // `if (corrections === 0) return done()` — an early return that short-circuited
+    // EVERY gate below it (code-reviewer/release-engineer/test-engineer), not just this
+    // one. In any session with no recent "dissatisfied" feedback entry, none of today's
+    // enforcement ever ran, full stop — only caught because this session's own feedback
+    // log always had a recent entry during testing, masking it. Each gate must be
+    // independently reachable; only `block()` should ever short-circuit (it exits the
+    // process directly), never a bare `return done()` partway through.
     const corrections = countRecent(FEEDBACK_LOG, sessionStart, e => e.type === 'dissatisfied');
-    if (corrections === 0) return done();
+    if (corrections > 0) {
+      const memoryUpdated = checkMemoryUpdated(sessionStart);
+      const learnLogged = countRecent(DECISIONS_LOG, sessionStart, e =>
+        JSON.stringify(e).toLowerCase().includes('cso-learn')
+      ) > 0;
 
-    const memoryUpdated = checkMemoryUpdated(sessionStart);
-    const learnLogged = countRecent(DECISIONS_LOG, sessionStart, e =>
-      JSON.stringify(e).toLowerCase().includes('cso-learn')
-    ) > 0;
-
-    if (!memoryUpdated && !learnLogged) {
-      return block(
-        `${corrections} correction(s) logged in feedback.jsonl this session but no memory file was ` +
-        `written and no decisions.jsonl entry shows /cso-learn ran. Run /cso-learn now, write the ` +
-        `memory file(s), update MEMORY.md, then log a decisions.jsonl entry mentioning cso-learn ` +
-        `before ending this turn.`
-      );
+      if (!memoryUpdated && !learnLogged) {
+        return block(
+          `${corrections} correction(s) logged in feedback.jsonl this session but no memory file was ` +
+          `written and no decisions.jsonl entry shows /cso-learn ran. Run /cso-learn now, write the ` +
+          `memory file(s), update MEMORY.md, then log a decisions.jsonl entry mentioning cso-learn ` +
+          `before ending this turn.`
+        );
+      }
     }
 
     // Second gate: a commit landed recently with no logged code-reviewer dispatch.
@@ -57,12 +67,26 @@ async function main() {
     const recentCommitMs = getLastCommitMs();
     const reviewWindowStart = recentCommitMs ? Math.max(recentCommitMs - 30 * 60 * 1000, sessionStart) : null;
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesCode()) {
-      const reviewLogged = wasReallyDispatched('code-reviewer', dispatchedPersonas, reviewWindowStart);
-      if (!reviewLogged) {
+      const fullDispatched = wasReallyDispatched('code-reviewer', dispatchedPersonas, reviewWindowStart);
+      // 2026-06-30: user said cost is low priority but explicitly does not want a
+      // ~25-40k-token Agent dispatch for every small change. Small + non-infra commits
+      // get a cheaper path: a logged self-review with selfReviewed:true (structured
+      // field, not fuzzy text — same lesson as loggedAsPersona). Infra files
+      // (.cso/hooks/*, dashboard/server.js) are EXCLUDED from this fast path regardless
+      // of size — every "small-looking" diff in those files this session had a real,
+      // sometimes blocking bug a self-review missed and only a real dispatch caught.
+      const selfReviewOk = isSmallNonInfraCommit() &&
+        countRecent(DECISIONS_LOG, reviewWindowStart, e => loggedSelfReview(e)) > 0;
+      if (!fullDispatched && !selfReviewOk) {
+        const stats = lastCommitDiffStats();
+        const sizeNote = stats ? ` (${stats.files} file(s), ${stats.totalLines} line(s) changed)` : '';
         return block(
-          `A git commit landed at ${new Date(recentCommitMs).toISOString()} but no decisions.jsonl ` +
-          `entry mentions code-reviewer. Dispatch the code-reviewer agent on the diff now and log a ` +
-          `decisions.jsonl entry mentioning code-reviewer before ending this turn.`
+          `A git commit landed at ${new Date(recentCommitMs).toISOString()}${sizeNote} with no logged ` +
+          `review. Either: (a) dispatch the code-reviewer agent and it'll be picked up via transcript, ` +
+          `or (b) if this is a small, non-infra change (not touching .cso/hooks/ or dashboard/server.js, ` +
+          `single file, <=${SMALL_CHANGE_MAX_LINES} lines), self-review it yourself and log a ` +
+          `decisions.jsonl entry with {"selfReviewed":true,"persona":"engineer","decision":"<real ` +
+          `reasoning, what you checked>"} before ending this turn.`
         );
       }
     }
@@ -117,6 +141,59 @@ function lastCommitTouchesCode() {
   } catch {
     return true; // unknown -> safer to ask for review than silently skip
   }
+}
+
+// Infra paths always require full review regardless of size — this session's own
+// evidence: every "small-looking" diff to .cso/hooks/*.js had a real bug (flat-vs-nested
+// JSON schema, title-collision merging, gameable substring match) that a quick self-check
+// would plausibly have missed. The cost of a wrong hook is "silently stops enforcing
+// anything"; that's not a place to cut review cost.
+function touchesReviewExemptInfra(files) {
+  // Lowercase both sides — code-reviewer found that a wrongly-cased path (e.g.
+  // "Dashboard/Server.js", a plausible typo/copy-paste artifact) would silently bypass
+  // the exact-match/startsWith checks on case-sensitive filesystems, defeating the entire
+  // point of this exclusion for exactly the files it exists to protect.
+  return files.some(f => {
+    const lf = f.toLowerCase();
+    return lf.startsWith('.cso/hooks/') || lf === 'dashboard/server.js' || lf.startsWith('bootstrap.sh');
+  });
+}
+
+function lastCommitDiffStats() {
+  try {
+    const out = execSync('git show --shortstat --format= HEAD', { cwd: REPO_ROOT, encoding: 'utf-8', timeout: 3000 }).trim();
+    const files = lastCommitFiles() || [];
+    const insertions = (out.match(/(\d+) insertion/) || [])[1];
+    const deletions = (out.match(/(\d+) deletion/) || [])[1];
+    const totalLines = (parseInt(insertions || '0', 10)) + (parseInt(deletions || '0', 10));
+    return { files: files.length, totalLines };
+  } catch {
+    return null;
+  }
+}
+
+function isSmallNonInfraCommit() {
+  const files = lastCommitFiles();
+  if (!files || files.length === 0) return false;
+  if (touchesReviewExemptInfra(files)) return false;
+  const stats = lastCommitDiffStats();
+  if (!stats) return false;
+  return stats.files <= SMALL_CHANGE_MAX_FILES && stats.totalLines <= SMALL_CHANGE_MAX_LINES;
+}
+
+// Structured field, not fuzzy text search — same lesson as loggedAsPersona(). BUT this
+// is NOT equivalent rigor to a real code-reviewer dispatch: the same model writes both
+// the commit and this log entry in the same turn, with no independent check (unlike
+// wasReallyDispatched(), which verifies against the transcript). The >20-char floor only
+// rules out empty/one-word stubs — it does not verify the reasoning is real or correct.
+// This is a deliberate, weaker, cheaper gate for small non-infra changes per the user's
+// explicit cost tradeoff (2026-06-30) — accept that someone could satisfy it with vague
+// text, don't read it as proof of substantive review.
+function loggedSelfReview(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  if (entry.selfReviewed !== true) return false;
+  const text = String(entry.decision || entry.reason || '');
+  return text.trim().length > 20;
 }
 
 function lastCommitFiles() {
