@@ -71,10 +71,11 @@ s.hooks = Object.assign({}, s.hooks, {
   SessionEnd:       one('on-session-end.js'),
   PostToolUse:      one('on-tool-output.js'),
   TaskCompleted:    one('on-task-complete.js'),
+  Stop:             one('on-stop-gate.js'),
 });
 fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2) + '\n');
-console.log('    wired 5 hook events ->', hooksDir);
+console.log('    wired 6 hook events ->', hooksDir);
 NODE
 chmod +x "$HOOKS_DIR"/*.js "$REPO/.cso/daemon/cso-daemon.js" "$REPO/.cso/decision/record-decision.cjs" 2>/dev/null || true
 
