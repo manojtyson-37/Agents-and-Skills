@@ -12,16 +12,58 @@ const STATE_DIR = path.join(__dirname, '../.cso/state');
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
+function readJsonl(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf-8')
+    .split('\n')
+    .filter(line => line.trim())
+    .map(line => { try { return JSON.parse(line); } catch { return null; } })
+    .filter(Boolean);
+}
+
+// Ground truth for "what's actually done": task_history.jsonl entries get written by
+// real task-start/task-complete events, unlike workflow_state.json's tasks/completedTasks
+// which require the agent to remember to write them and routinely don't (see
+// project_cso_reliability_gaps memory — workflow_state stayed empty for 2+ days across
+// sessions that did real work).
+function computeRealTaskStats() {
+  const history = readJsonl(path.join(STATE_DIR, 'task_history.jsonl'));
+  const tasks = new Map(); // id -> { completed: bool, lastSeen: timestamp }
+  let lastActivity = null;
+  for (const e of history) {
+    const ts = e.timestamp || e.ts;
+    if (ts && (!lastActivity || ts > lastActivity)) lastActivity = ts;
+
+    // Only entries with a real per-task id count toward the task ratio.
+    // WORKFLOW_INITIALIZED/WORKFLOW_COMPLETE events key off objectiveId (a whole
+    // workflow, not one task) and must NOT share the same id-space as tasks, or a
+    // workflow-init event inflates totalTasksPlanned and a workflow-complete event
+    // can get miscounted as a completed "task" (code-reviewer flagged this).
+    if (!e.task) continue;
+    const completed = e.status === 'completed' || e.event === 'task-complete';
+    const prev = tasks.get(e.task) || { completed: false };
+    tasks.set(e.task, { completed: prev.completed || completed });
+  }
+  const totalTasksPlanned = tasks.size;
+  const tasksCompleted = [...tasks.values()].filter(t => t.completed).length;
+  return { totalTasksPlanned, tasksCompleted, lastActivity };
+}
+
 // API: Get workflow state
 app.get('/api/workflow', (req, res) => {
   try {
     const stateFile = path.join(STATE_DIR, 'workflow_state.json');
+    let state = { status: 'no-workflow' };
     if (fs.existsSync(stateFile)) {
-      const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-      res.json(state);
-    } else {
-      res.json({ status: 'no-workflow' });
+      state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
     }
+    const real = computeRealTaskStats();
+    // Flag when workflow_state.json's own bookkeeping disagrees with task_history.jsonl
+    // ground truth, instead of silently presenting the (possibly fictional) state as fact.
+    const declaredCompleted = (state.completedTasks || []).length;
+    state.dataStale = real.totalTasksPlanned > 0 && declaredCompleted !== real.tasksCompleted;
+    state.realTaskStats = real;
+    res.json(state);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -48,20 +90,21 @@ app.get('/api/decisions', (req, res) => {
   }
 });
 
-// API: Get metrics
+// API: Get metrics. tasksCompleted/totalTasksPlanned are recomputed live from
+// task_history.jsonl (ground truth) and overwrite whatever stale numbers are sitting in
+// metrics.json — see computeRealTaskStats().
 app.get('/api/metrics', (req, res) => {
   try {
     const metricsFile = path.join(STATE_DIR, 'metrics.json');
+    let metrics = { compressionPercent: 0 };
     if (fs.existsSync(metricsFile)) {
-      const metrics = JSON.parse(fs.readFileSync(metricsFile, 'utf-8'));
-      res.json(metrics);
-    } else {
-      res.json({
-        tasksCompleted: 0,
-        totalTasksPlanned: 0,
-        compressionPercent: 0
-      });
+      metrics = JSON.parse(fs.readFileSync(metricsFile, 'utf-8'));
     }
+    const real = computeRealTaskStats();
+    metrics.tasksCompleted = real.tasksCompleted;
+    metrics.totalTasksPlanned = real.totalTasksPlanned;
+    metrics.lastRealActivity = real.lastActivity;
+    res.json(metrics);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -172,15 +215,23 @@ app.get('/api/archives', (req, res) => {
   }
 });
 
-// API: Get inbox tasks
+// API: Get inbox tasks, with real age + staleness flag — these previously sat pending
+// indefinitely with no visible signal (Silaa ERP task sat 57h+ untouched, see
+// project_cso_reliability_gaps memory).
 app.get('/api/inbox', (req, res) => {
   try {
     const inboxFile = path.join(STATE_DIR, 'inbox.json');
+    let inbox = { version: 1, tasks: [] };
     if (fs.existsSync(inboxFile)) {
-      res.json(JSON.parse(fs.readFileSync(inboxFile, 'utf-8')));
-    } else {
-      res.json({ version: 1, tasks: [] });
+      inbox = JSON.parse(fs.readFileSync(inboxFile, 'utf-8'));
     }
+    const STALE_HOURS = 24;
+    inbox.tasks = (inbox.tasks || []).map(t => {
+      const ageHours = t.createdAt ? (Date.now() - new Date(t.createdAt).getTime()) / 3600000 : null;
+      return { ...t, ageHours: ageHours !== null ? Math.round(ageHours * 10) / 10 : null, stale: ageHours !== null && ageHours > STALE_HOURS };
+    });
+    inbox.staleCount = inbox.tasks.filter(t => t.stale && t.status === 'pending').length;
+    res.json(inbox);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
