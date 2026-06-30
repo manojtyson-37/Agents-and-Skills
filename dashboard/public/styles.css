@@ -677,6 +677,7 @@ body {
 
 .inbox-item.blocked { border-left-color: var(--rose); }
 .inbox-item.ready { border-left-color: var(--teal); }
+.inbox-item.stale { background: rgba(244, 63, 94, 0.08); }
 
 .inbox-item-title {
   font-size: 13px;

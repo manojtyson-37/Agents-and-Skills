@@ -297,6 +297,26 @@ function renderAlerts() {
     });
   }
 
+  // workflow.dataStale / inbox.staleCount computed server-side from task_history.jsonl
+  // ground truth (see dashboard/server.js computeRealTaskStats) — workflow_state.json's
+  // own bookkeeping was found stuck/fictional for 2+ days, so surface the mismatch
+  // instead of silently trusting it.
+  if (workflow.dataStale) {
+    const r = workflow.realTaskStats || {};
+    alerts.push({
+      type: 'warning',
+      message: `workflow_state.json disagrees with real task history (${r.tasksCompleted}/${r.totalTasksPlanned} actually completed per task_history.jsonl)`,
+      time: new Date().toLocaleTimeString()
+    });
+  }
+  if (inbox.staleCount > 0) {
+    alerts.push({
+      type: 'warning',
+      message: `${inbox.staleCount} inbox task(s) pending 24h+ with no resolution`,
+      time: new Date().toLocaleTimeString()
+    });
+  }
+
   const allTasks = workflow.tasks || {};
   Object.entries(allTasks).forEach(([id, task]) => {
     if (task.status === 'in-progress' && task.estimate && task.startedAt) {
@@ -469,12 +489,12 @@ function renderInbox() {
     const age = t.createdAt ? timeAgo(new Date(t.createdAt)) : '';
     const priorityClass = t.priority === 'blocked' ? 'blocked' : 'ready';
     return `
-      <div class="inbox-item ${priorityClass}">
+      <div class="inbox-item ${priorityClass}${t.stale ? ' stale' : ''}">
         <div class="inbox-item-title">${t.title}</div>
         <div class="inbox-item-meta">
           <span class="inbox-workspace">${t.workspace || '?'}</span>
           <span class="inbox-owner">${t.owner || ''}</span>
-          <span class="inbox-age">${age}</span>
+          <span class="inbox-age">${age}${t.stale ? ' ⚠ stale' : ''}</span>
         </div>
       </div>`;
   }).join('');
