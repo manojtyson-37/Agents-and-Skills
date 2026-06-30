@@ -31,6 +31,7 @@ async function main() {
     if (input.stop_hook_active) return done();
 
     const sessionStart = Date.now() - 2 * 60 * 60 * 1000; // 2h lookback window
+    const dispatchedPersonas = transcriptDispatchedPersonas(input.transcript_path, sessionStart);
 
     const corrections = countRecent(FEEDBACK_LOG, sessionStart, e => e.type === 'dissatisfied');
     if (corrections === 0) return done();
@@ -56,7 +57,7 @@ async function main() {
     const recentCommitMs = getLastCommitMs();
     const reviewWindowStart = recentCommitMs ? Math.max(recentCommitMs - 30 * 60 * 1000, sessionStart) : null;
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesCode()) {
-      const reviewLogged = countRecent(DECISIONS_LOG, reviewWindowStart, e => loggedAsPersona(e, 'code-reviewer')) > 0;
+      const reviewLogged = wasReallyDispatched('code-reviewer', dispatchedPersonas, reviewWindowStart);
       if (!reviewLogged) {
         return block(
           `A git commit landed at ${new Date(recentCommitMs).toISOString()} but no decisions.jsonl ` +
@@ -69,7 +70,7 @@ async function main() {
     // Third gate: a commit touches deploy config (the repo is being shipped) with no
     // logged release-engineer dispatch.
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesDeployConfig()) {
-      const releaseLogged = countRecent(DECISIONS_LOG, reviewWindowStart, e => loggedAsPersona(e, 'release-engineer')) > 0;
+      const releaseLogged = wasReallyDispatched('release-engineer', dispatchedPersonas, reviewWindowStart);
       if (!releaseLogged) {
         return block(
           `A git commit at ${new Date(recentCommitMs).toISOString()} touches deploy config but no ` +
@@ -81,7 +82,7 @@ async function main() {
     // Fourth gate: a commit touches app source in a repo with a real test script, no
     // logged test-engineer/verify pass.
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesTestableCode()) {
-      const testLogged = countRecent(DECISIONS_LOG, reviewWindowStart, e => loggedAsPersona(e, 'test-engineer')) > 0;
+      const testLogged = wasReallyDispatched('test-engineer', dispatchedPersonas, reviewWindowStart);
       if (!testLogged) {
         return block(
           `A git commit at ${new Date(recentCommitMs).toISOString()} touches testable app code in a repo ` +
@@ -155,13 +156,74 @@ function lastCommitTouchesTestableCode() {
   }
 }
 
+// Real verification: parse the actual session transcript for Agent tool_use blocks with
+// a matching subagent_type, instead of trusting a hand-writable decisions.jsonl line.
+// code-reviewer's second pass flagged that the persona-field check alone is still
+// gameable (write one JSON line, no real dispatch needed) — transcript_path is provided
+// by Claude Code on the Stop hook input and reflects what tool calls actually happened,
+// which can't be faked the same way. Returns a Set of persona names with a real Agent
+// dispatch since sinceMs.
+// Returns null if the transcript couldn't be read at all (caller should fall back to
+// decisions.jsonl), or a Set (possibly empty) if it was read successfully — an empty Set
+// is a real, trustworthy "nothing was dispatched," not a reason to fall back.
+//
+// Known limits (code-reviewer's third pass, kept deliberately rather than over-built):
+// - Lines with malformed JSON or missing/unparseable `timestamp` are silently skipped.
+//   A real dispatch could in theory be missed if its transcript line lacks a timestamp,
+//   but Claude Code's assistant tool_use entries reliably carry one in practice.
+// - Only the last MAX_SCAN_LINES lines are scanned (not the full file) — this gate only
+//   needs recent activity (commit was just made, review window is ~30min), and a
+//   multi-hour session's transcript can be tens of MB; full synchronous reads on every
+//   Stop event would be wasteful. If a real dispatch happened far enough back to fall
+//   outside both the line cap and the time window, this correctly treats it as stale.
+// - Proves a dispatch HAPPENED, not that it was substantive — a rubber-stamp Agent call
+//   with subagent_type:"code-reviewer" and a vacuous prompt still satisfies this check.
+//   That's a real residual gap, accepted as a large improvement over hand-writable JSON
+//   text, not a closure of "agent must do real work."
+const MAX_SCAN_LINES = 4000;
+function transcriptDispatchedPersonas(transcriptPath, sinceMs) {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return null;
+  const found = new Set();
+  try {
+    const all = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
+    const lines = all.length > MAX_SCAN_LINES ? all.slice(-MAX_SCAN_LINES) : all;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const ts = Date.parse(e.timestamp || 0);
+        if (Number.isNaN(ts) || ts < sinceMs) continue;
+        const content = e.message && e.message.content;
+        if (!Array.isArray(content)) continue;
+        for (const c of content) {
+          if (c && c.type === 'tool_use' && c.name === 'Agent' && c.input && c.input.subagent_type) {
+            found.add(String(c.input.subagent_type).toLowerCase());
+          }
+        }
+      } catch {}
+    }
+  } catch {
+    return null;
+  }
+  return found;
+}
+
+// Transcript verification is primary (can't be faked). Falls back to the decisions.jsonl
+// persona-field check only when the transcript itself couldn't be read (null), not merely
+// when it was empty of dispatches — an empty Set from a successfully-read transcript means
+// "really wasn't dispatched," and must not silently fall through to the weaker check.
+function wasReallyDispatched(persona, dispatchedPersonas, decisionsWindowStart) {
+  if (dispatchedPersonas === null) {
+    return countRecent(DECISIONS_LOG, decisionsWindowStart, e => loggedAsPersona(e, persona)) > 0;
+  }
+  return dispatchedPersonas.has(persona.toLowerCase());
+}
+
 // Require a structured `persona` field match, not a fuzzy substring search over the
 // whole serialized entry — code-reviewer flagged that a junk line like
 // {"note":"release-engineer noted, skipping"} could satisfy a substring check without
 // any real dispatch happening. `decision`/`reason` must also be non-trivial (>20 chars)
-// so a one-word stub can't pass either. This doesn't prove an Agent tool call actually
-// ran, but it raises the bar from "any text anywhere" to "deliberately logged as this
-// persona with a real description."
+// so a one-word stub can't pass either. This is now the fallback path only (see
+// wasReallyDispatched) — transcript verification is primary.
 function loggedAsPersona(entry, persona) {
   if (!entry || typeof entry !== 'object') return false;
   const p = String(entry.persona || '').toLowerCase();
