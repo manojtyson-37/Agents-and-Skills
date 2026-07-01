@@ -4,8 +4,10 @@ const fs = require('fs');
 const path = require('path');
 
 const STATE_DIR = path.join(__dirname, '../state');
+const DECISION_DIR = path.join(__dirname, '../decision');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
 const FEEDBACK_LOG = path.join(STATE_DIR, 'feedback.jsonl');
+const PATTERN_LOG = path.join(DECISION_DIR, 'decision_patterns.jsonl');
 
 const DISSATISFACTION_PATTERNS = [
   /not happy/i,
@@ -45,9 +47,48 @@ const SATISFACTION_PATTERNS = [
   /appreciate/i
 ];
 
+// Approval signals: user greenlighting a proposal CSO made.
+// These are short decisive affirmatives — distinct from general satisfaction.
+const APPROVAL_PATTERNS = [
+  /^(yes|yep|yeah|yup)[\s.!]*$/i,
+  /^(go ahead|go for it|do it|do that|proceed|sounds good|looks good|makes sense)[\s.!]*$/i,
+  /^(ok|okay|fine|sure|agreed|correct|right|exactly)[\s.!]*$/i,
+  /^(perfect|great|good)[\s.!]*$/i,
+  /\bgo ahead\b/i,
+  /\bdo (it|that|this)\b/i,
+  /\bproceed\b/i,
+  /\bsounds good\b/i,
+  /\bmakes sense\b/i,
+  /\byes[,.]? (do|go|add|build|fix|update|wire|implement|push|deploy)/i,
+];
+
+// Rejection signals: user declining a proposal.
+const REJECTION_PATTERNS = [
+  /^(no|nope|nah|not yet|not now|skip|hold off|don't|do not)[\s.!]*$/i,
+  /\bnot (yet|now|today)\b/i,
+  /\bskip (that|this|it)\b/i,
+  /\bhold off\b/i,
+  /\bdon't (do|add|build|push|deploy)\b/i,
+];
+
 async function onUserFeedback() {
   try {
-    const input = await readStdin();
+    const raw = await readStdin();
+    if (!raw || raw.length < 2) return;
+
+    const input = extractPromptText(raw);
+    if (!input || input.length < 2) return;
+
+    // --- Decision approval/rejection capture (passive learning loop) ---
+    // Detect short decisive responses — user greenlighting or rejecting a CSO proposal.
+    // These are captured into decision_patterns.jsonl so decision-maker learns over time.
+    const approvalMatch = APPROVAL_PATTERNS.some(p => p.test(input.trim()));
+    const rejectionMatch = REJECTION_PATTERNS.some(p => p.test(input.trim()));
+
+    if (approvalMatch || rejectionMatch) {
+      captureDecisionPattern(input.trim(), approvalMatch ? 'approve' : 'reject');
+    }
+
     if (!input || input.length < 10) return;
 
     // Check workflow exists
@@ -80,6 +121,61 @@ async function onUserFeedback() {
     }
   } catch (error) {
     console.error('[CSO] Feedback error:', error.message);
+  }
+}
+
+function extractPromptText(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.prompt === 'string') return parsed.prompt;
+    if (typeof parsed.prompt === 'object' && parsed.prompt.content) return parsed.prompt.content;
+    if (typeof parsed.message === 'string') return parsed.message;
+    if (typeof parsed.content === 'string') return parsed.content;
+    if (typeof parsed.input === 'string') return parsed.input;
+    return '';
+  } catch {
+    return raw.trim();
+  }
+}
+
+function captureDecisionPattern(userText, signal) {
+  try {
+    // Read workflow state for context (what was CSO working on?)
+    let context = 'user approval of CSO proposal';
+    let workflowObjective = '';
+    if (fs.existsSync(WORKFLOW_STATE)) {
+      try {
+        const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+        workflowObjective = state.objective || state.objectiveId || '';
+        const inProgress = state.inProgressTask && state.tasks && state.tasks[state.inProgressTask];
+        if (inProgress) {
+          context = `${signal === 'approve' ? 'approved' : 'rejected'} CSO proposal during task: ${inProgress.description || state.inProgressTask}`;
+        } else if (workflowObjective) {
+          context = `${signal === 'approve' ? 'approved' : 'rejected'} CSO proposal in workflow: ${workflowObjective}`;
+        }
+      } catch {}
+    }
+
+    const entry = {
+      timestamp: new Date().toISOString(),
+      context,
+      workflowObjective,
+      options: signal === 'approve' ? ['approve', 'reject'] : ['reject', 'approve'],
+      chosen: signal,
+      userText: userText.substring(0, 80),
+      decidedBy: 'user',
+      confidence: 'high',
+      rationale: `User said "${userText.substring(0, 40)}" — clear ${signal}`,
+      reversible: true,
+      override: false,
+      source: 'on-user-feedback-hook',
+    };
+
+    if (!fs.existsSync(DECISION_DIR)) fs.mkdirSync(DECISION_DIR, { recursive: true });
+    fs.appendFileSync(PATTERN_LOG, JSON.stringify(entry) + '\n');
+    console.log(`[CSO] Decision pattern captured: ${signal} (${context.substring(0, 60)})`);
+  } catch (e) {
+    // Fail silently — don't break the session over a learning-capture failure
   }
 }
 

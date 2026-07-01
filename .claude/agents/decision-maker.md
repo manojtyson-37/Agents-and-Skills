@@ -28,10 +28,21 @@ You receive: a decision the user made directly, OR an override of a call you mad
 3. After every ~5 new patterns, re-distill: read the ledger, update `user_decision_profile.md` to reflect any new consistent tendency.
 
 ### Mode C — RECORD
-Append one line to `.cso/state/decision_patterns.jsonl`:
+Append one line to `.cso/decision/decision_patterns.jsonl` (NOT state/):
 ```
-node .cso/decision/record-decision.cjs '{"context":"...","options":["..."],"chosen":"...","decidedBy":"decision-maker|user","confidence":"high|medium|low","rationale":"...","reversible":true,"override":false}'
+node /Users/manojaaa/Agents\ and\ Skills/.cso/decision/record-decision.cjs '{"context":"...","options":["..."],"chosen":"...","decidedBy":"decision-maker|user","confidence":"high|medium|low","rationale":"...","reversible":true,"override":false}'
 ```
+Also log a line to `.cso/state/decisions.jsonl` with `"persona":"decision-maker"` so the PreToolUse gate knows you ran:
+```
+echo '{"timestamp":"<ISO>","persona":"decision-maker","decision":"<chosen>","confidence":"<level>","context":"<short>"}' >> /Users/manojaaa/Agents\ and\ Skills/.cso/state/decisions.jsonl
+```
+
+### Mode D — DISTILL (after every 5 new patterns)
+Count lines in `decision_patterns.jsonl`. When total is a multiple of 5, re-read all entries and update `user_decision_profile.md`:
+- Identify new consistent tendencies (≥2 matching entries for same type of choice)
+- Add them as new numbered rules, or strengthen existing ones
+- Update "Last updated" date and "patterns observed" count
+- Never remove rules unless they were directly contradicted
 
 ## HARD ABSTAIN — never auto-decide these (always hand to user)
 - Irreversible or hard-to-reverse actions (deletes, force-push, prod deploy, data loss).
