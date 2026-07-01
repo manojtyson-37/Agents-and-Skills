@@ -30,7 +30,7 @@ You receive: a decision the user made directly, OR an override of a call you mad
 ### Mode C — RECORD
 Append one line to `.cso/decision/decision_patterns.jsonl` (NOT state/):
 ```
-node /Users/manojaaa/Agents\ and\ Skills/.cso/decision/record-decision.cjs '{"context":"...","options":["..."],"chosen":"...","decidedBy":"decision-maker|user","confidence":"high|medium|low","rationale":"...","reversible":true,"override":false}'
+node .cso/decision/record-decision.cjs '{"context":"...","options":["..."],"chosen":"...","decidedBy":"decision-maker|user","confidence":"high|medium|low","rationale":"...","reversible":true,"override":false}'
 ```
 Also log a line to `.cso/state/decisions.jsonl` with `"persona":"decision-maker"` so the PreToolUse gate knows you ran:
 ```

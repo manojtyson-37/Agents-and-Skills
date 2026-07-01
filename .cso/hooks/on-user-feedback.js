@@ -48,27 +48,21 @@ const SATISFACTION_PATTERNS = [
 ];
 
 // Approval signals: user greenlighting a proposal CSO made.
-// These are short decisive affirmatives — distinct from general satisfaction.
+// ONLY anchored ^...$  forms — unanchored substring patterns produce false positives
+// on questions like "why did you do it that way?" (code-reviewer catch, fffa9de).
+// Kept to unambiguous short greenlights only.
 const APPROVAL_PATTERNS = [
   /^(yes|yep|yeah|yup)[\s.!]*$/i,
-  /^(go ahead|go for it|do it|do that|proceed|sounds good|looks good|makes sense)[\s.!]*$/i,
-  /^(ok|okay|fine|sure|agreed|correct|right|exactly)[\s.!]*$/i,
-  /^(perfect|great|good)[\s.!]*$/i,
-  /\bgo ahead\b/i,
-  /\bdo (it|that|this)\b/i,
-  /\bproceed\b/i,
-  /\bsounds good\b/i,
-  /\bmakes sense\b/i,
-  /\byes[,.]? (do|go|add|build|fix|update|wire|implement|push|deploy)/i,
+  /^(go ahead|go for it|do it|do that|proceed)[\s.!]*$/i,
+  /^(ok|okay|sure|agreed)[\s.!]*$/i,
+  /^(sounds good|looks good)[\s.!]*$/i,
+  /^yes[,.]? (do|go|add|build|fix|update|wire|implement|push|deploy)\b/i,
 ];
 
-// Rejection signals: user declining a proposal.
+// Rejection signals: user declining a proposal (anchored to avoid false positives).
 const REJECTION_PATTERNS = [
   /^(no|nope|nah|not yet|not now|skip|hold off|don't|do not)[\s.!]*$/i,
-  /\bnot (yet|now|today)\b/i,
-  /\bskip (that|this|it)\b/i,
-  /\bhold off\b/i,
-  /\bdon't (do|add|build|push|deploy)\b/i,
+  /^(stop|cancel|abort|revert|undo)[\s.!]*$/i,
 ];
 
 async function onUserFeedback() {
@@ -140,18 +134,21 @@ function extractPromptText(raw) {
 
 function captureDecisionPattern(userText, signal) {
   try {
-    // Read workflow state for context (what was CSO working on?)
-    let context = 'user approval of CSO proposal';
+    // Read workflow state for context — only use it when workflow is actively in-progress.
+    // Stale/completed workflow state produces mislabeled entries (code-reviewer catch, fffa9de).
+    let context = 'unknown — no active workflow';
     let workflowObjective = '';
     if (fs.existsSync(WORKFLOW_STATE)) {
       try {
         const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-        workflowObjective = state.objective || state.objectiveId || '';
-        const inProgress = state.inProgressTask && state.tasks && state.tasks[state.inProgressTask];
-        if (inProgress) {
-          context = `${signal === 'approve' ? 'approved' : 'rejected'} CSO proposal during task: ${inProgress.description || state.inProgressTask}`;
-        } else if (workflowObjective) {
-          context = `${signal === 'approve' ? 'approved' : 'rejected'} CSO proposal in workflow: ${workflowObjective}`;
+        if (state.status === 'in-progress') {
+          workflowObjective = state.objective || state.objectiveId || '';
+          const inProgress = state.inProgressTask && state.tasks && state.tasks[state.inProgressTask];
+          if (inProgress) {
+            context = `${signal} during active task: ${inProgress.description || state.inProgressTask}`;
+          } else if (workflowObjective) {
+            context = `${signal} during active workflow: ${workflowObjective.substring(0, 80)}`;
+          }
         }
       } catch {}
     }
@@ -173,7 +170,8 @@ function captureDecisionPattern(userText, signal) {
 
     if (!fs.existsSync(DECISION_DIR)) fs.mkdirSync(DECISION_DIR, { recursive: true });
     fs.appendFileSync(PATTERN_LOG, JSON.stringify(entry) + '\n');
-    console.log(`[CSO] Decision pattern captured: ${signal} (${context.substring(0, 60)})`);
+    // stderr only — stdout in UserPromptSubmit hooks injects into model context (code-reviewer catch, fffa9de)
+    process.stderr.write(`[CSO] decision pattern captured: ${signal} (${context.substring(0, 60)})\n`);
   } catch (e) {
     // Fail silently — don't break the session over a learning-capture failure
   }
