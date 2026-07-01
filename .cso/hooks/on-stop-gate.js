@@ -116,6 +116,51 @@ async function main() {
       }
     }
 
+    // Fifth gate: a code commit landed but CSO state files were not updated this session.
+    // workflow_state.json and task_history.jsonl are required after every task. Skipping
+    // them means the dashboard goes dark and next-session recovery is impossible.
+    // Window: state files must have been touched within 10 min before the commit or any
+    // time after it (covers both "log then commit" and "commit then log" orderings).
+    if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesCode()) {
+      const stateWindow = recentCommitMs - 10 * 60 * 1000;
+      const wfPath = path.join(STATE_DIR, 'workflow_state.json');
+      const thPath = path.join(STATE_DIR, 'task_history.jsonl');
+      const wfUpdated = fs.existsSync(wfPath) && fs.statSync(wfPath).mtimeMs >= stateWindow;
+      const thUpdated = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= stateWindow;
+      if (!wfUpdated) {
+        return block(
+          `A git commit landed at ${new Date(recentCommitMs).toISOString()} but workflow_state.json ` +
+          `was not updated this session. Update it (set the task to completed, move inProgressTask) ` +
+          `before ending this turn. Path: ${wfPath}`
+        );
+      }
+      if (!thUpdated) {
+        return block(
+          `A git commit landed at ${new Date(recentCommitMs).toISOString()} but task_history.jsonl ` +
+          `has not been appended this session. Log the completed task ` +
+          `({"timestamp":"...","task":"...","status":"completed","persona":"engineer","commit":"..."}) ` +
+          `before ending this turn. Path: ${thPath}`
+        );
+      }
+    }
+
+    // Sixth gate: code was pushed to remote (HEAD == remote) but no Chrome MCP prod verify
+    // call appears in the transcript after the commit. Every push to this Vercel-deployed
+    // repo requires a location.reload(true) and at least one page read to confirm prod state.
+    // Only fires when HEAD matches remote (i.e., push already happened this session).
+    if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesCode() && isPushedToRemote()) {
+      const prodVerified = transcriptHasProdVerify(input.transcript_path, recentCommitMs);
+      if (!prodVerified) {
+        return block(
+          `A push is detected (local HEAD matches remote) for commit at ` +
+          `${new Date(recentCommitMs).toISOString()} but no Chrome MCP prod verify call ` +
+          `(javascript_tool/get_page_text/read_page on the Vercel URL) was found in the transcript ` +
+          `after the commit. Do location.reload(true) on prod and confirm the change is live ` +
+          `before ending this turn.`
+        );
+      }
+    }
+
     return done();
   } catch (e) {
     return done(); // never crash the session over a hook bug
@@ -331,6 +376,55 @@ function checkMemoryUpdated(sinceMs) {
   const files = fs.readdirSync(memoryDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
   for (const f of files) {
     if (fs.statSync(path.join(memoryDir, f)).mtimeMs >= sinceMs) return true;
+  }
+  return false;
+}
+
+// Returns true if local HEAD matches the upstream remote branch (i.e., a push happened).
+// False if ahead (not yet pushed), no remote, or git error (safe: no false gate).
+function isPushedToRemote() {
+  try {
+    const status = execSync('git status -sb', { cwd: REPO_ROOT, encoding: 'utf-8', timeout: 3000 });
+    if (status.includes('ahead')) return false; // unpushed commits
+    // Verify a remote actually exists and HEAD has a tracking branch
+    const remote = execSync('git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo ""',
+      { cwd: REPO_ROOT, encoding: 'utf-8', timeout: 3000, shell: true }).trim();
+    return remote.length > 0;
+  } catch {
+    return false; // no git / no remote → don't fire gate
+  }
+}
+
+// Scans transcript for Chrome MCP tool calls that constitute prod verification:
+// javascript_tool (location.reload / page reads), get_page_text, read_page.
+// Only looks after sinceMs to avoid treating pre-commit checks as prod verify.
+function transcriptHasProdVerify(transcriptPath, sinceMs) {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return false;
+  const VERIFY_TOOLS = new Set([
+    'mcp__claude_in_chrome__javascript_tool',
+    'mcp__claude_in_chrome__get_page_text',
+    'mcp__claude_in_chrome__read_page',
+    'mcp__claude_in_chrome__navigate',
+  ]);
+  try {
+    const all = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
+    const lines = all.length > MAX_SCAN_LINES ? all.slice(-MAX_SCAN_LINES) : all;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const ts = Date.parse(e.timestamp || 0);
+        if (Number.isNaN(ts) || ts < sinceMs) continue;
+        const content = e.message && e.message.content;
+        if (!Array.isArray(content)) continue;
+        for (const c of content) {
+          if (c && c.type === 'tool_use' && VERIFY_TOOLS.has((c.name || '').toLowerCase())) {
+            return true;
+          }
+        }
+      } catch {}
+    }
+  } catch {
+    return false; // unreadable transcript → don't block
   }
   return false;
 }

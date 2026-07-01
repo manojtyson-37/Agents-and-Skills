@@ -11,6 +11,11 @@ async function onLearnCheck() {
     const input = await readStdin();
     if (!input) return;
 
+    // Always remind about the plan step — fires every turn so model can't forget protocol
+    // at execution time. Warning only (UserPromptSubmit cannot block), but appears before
+    // the model's first output token.
+    console.log(`[CSO] PROTOCOL: Show plan BEFORE any tool call. Update workflow_state.json + task_history.jsonl after each task. Prod verify (location.reload) after every push.`);
+
     // Check if there were corrections in this session (feedback.jsonl has recent dissatisfied entries)
     const recentCorrections = getRecentCorrections();
 
