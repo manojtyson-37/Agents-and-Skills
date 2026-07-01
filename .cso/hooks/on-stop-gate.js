@@ -153,10 +153,11 @@ async function main() {
       if (!prodVerified) {
         return block(
           `A push is detected (local HEAD matches remote) for commit at ` +
-          `${new Date(recentCommitMs).toISOString()} but no Chrome MCP prod verify call ` +
-          `(javascript_tool/get_page_text/read_page on the Vercel URL) was found in the transcript ` +
-          `after the commit. Do location.reload(true) on prod and confirm the change is live ` +
-          `before ending this turn.`
+          `${new Date(recentCommitMs).toISOString()} but no real prod verification was found. ` +
+          `REQUIRED: (1) navigate to prod URL in Chrome MCP, (2) open the changed UI, ` +
+          `(3) take a screenshot (computer action=screenshot, save_to_disk=true) — DOM inspection ` +
+          `and deploy status checks do NOT count. For mobile UI: resize to 390x844 first. ` +
+          `Show the screenshot before ending this turn.`
         );
       }
     }
@@ -395,20 +396,18 @@ function isPushedToRemote() {
   }
 }
 
-// Scans transcript for Chrome MCP tool calls that constitute prod verification:
-// javascript_tool (location.reload / page reads), get_page_text, read_page.
-// Only looks after sinceMs to avoid treating pre-commit checks as prod verify.
+// Scans transcript for real prod verification: requires a screenshot (computer
+// action=screenshot), not just DOM inspection (javascript_tool/read_page).
+// Lesson 2026-07-01: navigate + DOM inspection passed this check but failed the
+// user — NavBar z-index bug was invisible without a visual screenshot. Screenshot
+// is the only proof that counts for UI changes.
 function transcriptHasProdVerify(transcriptPath, sinceMs) {
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return false;
-  const VERIFY_TOOLS = new Set([
-    'mcp__claude_in_chrome__javascript_tool',
-    'mcp__claude_in_chrome__get_page_text',
-    'mcp__claude_in_chrome__read_page',
-    'mcp__claude_in_chrome__navigate',
-  ]);
   try {
     const all = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
     const lines = all.length > MAX_SCAN_LINES ? all.slice(-MAX_SCAN_LINES) : all;
+    let hasNavigate = false;
+    let hasScreenshot = false;
     for (const line of lines) {
       try {
         const e = JSON.parse(line);
@@ -417,16 +416,25 @@ function transcriptHasProdVerify(transcriptPath, sinceMs) {
         const content = e.message && e.message.content;
         if (!Array.isArray(content)) continue;
         for (const c of content) {
-          if (c && c.type === 'tool_use' && VERIFY_TOOLS.has((c.name || '').toLowerCase())) {
-            return true;
+          if (!c || c.type !== 'tool_use') continue;
+          const name = (c.name || '').toLowerCase();
+          // Navigate to the prod URL
+          if (name === 'mcp__claude_in_chrome__navigate') hasNavigate = true;
+          // Screenshot = visual proof (computer action=screenshot or preview_screenshot)
+          if (
+            (name === 'mcp__claude_in_chrome__computer' && c.input && c.input.action === 'screenshot') ||
+            name === 'mcp__claude_preview__preview_screenshot'
+          ) {
+            hasScreenshot = true;
           }
         }
       } catch {}
     }
+    // Both required: navigated to prod AND took a screenshot. DOM inspection alone is not verification.
+    return hasNavigate && hasScreenshot;
   } catch {
     return false; // unreadable transcript → don't block
   }
-  return false;
 }
 
 function block(reason) {

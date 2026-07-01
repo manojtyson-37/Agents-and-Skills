@@ -26,6 +26,26 @@ async function onToolOutput() {
     const outputTokens = estimateTokens(outputStr);
     accumulateTokenMetrics(outputTokens);
 
+    // Git push reminder: emit a loud nudge to verify on prod with a screenshot.
+    // Lesson 2026-07-01: deploy status ≠ verified. DOM inspection ≠ verified.
+    // Only a screenshot at mobile viewport on the real prod URL counts.
+    if (
+      output.tool_name === 'Bash' &&
+      typeof output.tool_input?.command === 'string' &&
+      /git\s+push/.test(output.tool_input.command) &&
+      !output.tool_input.command.includes('--dry-run')
+    ) {
+      process.stderr.write(
+        '\n[CSO] 🚨 PUSH DETECTED — verification REQUIRED before ending this turn:\n' +
+        '  1. mcp__Claude_in_Chrome__resize_window → 390x844 (mobile)\n' +
+        '  2. mcp__Claude_in_Chrome__navigate → prod URL (use /#/route for HashRouter apps)\n' +
+        '  3. Open the changed UI element\n' +
+        '  4. mcp__Claude_in_Chrome__computer action=screenshot save_to_disk=true\n' +
+        '  5. Show screenshot to user\n' +
+        '  DOM inspection and deploy-status checks do NOT satisfy the Stop hook gate.\n\n'
+      );
+    }
+
     // Load workflow state
     if (!fs.existsSync(WORKFLOW_STATE)) {
       return;
