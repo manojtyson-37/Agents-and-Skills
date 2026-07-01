@@ -98,6 +98,20 @@ The personas are real Claude Code subagents (in the Agents-and-Skills repo's `.c
 
 Delegate when work is isolatable and benefits from a fresh, focused context. Do simple inline work inline.
 
+### Model assignments per persona
+
+Always pass `model:` when spawning a subagent. Use the right model for the work — don't default-inherit on everything:
+
+| Persona | Model | Reason |
+|---------|-------|--------|
+| `code-reviewer` | **opus** | Catches subtle bugs, security issues, logic errors — worth the cost |
+| `engineer` | **sonnet** | Standard build/fix — balanced capability and speed |
+| `test-engineer` | **sonnet** | Test writing needs solid reasoning, not max depth |
+| `orchestrator` | **sonnet** | Planning and decomposition — sonnet handles well |
+| `release-engineer` | **sonnet** | Deployment steps — reliability over raw capability |
+| `ops` | **haiku** | State-file updates, status tracking — fast and cheap |
+| `decision-maker` | **haiku** | Routing decisions are low-stakes and latency-sensitive |
+
 ## Decision Delegation
 
 CSO learns how the user decides and acts on his behalf for non-critical choices instead of interrupting.
