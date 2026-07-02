@@ -218,20 +218,24 @@ function injectCSOProtocol(sessionId) {
     } catch {}
   }
 
-  // Inbox: show only on first turn per session
-  if (isFirstTurn) {
-    const inboxPath = path.join(STATE_DIR, 'inbox.json');
-    if (fs.existsSync(inboxPath)) {
-      try {
-        const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
-        const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
-        if (pending.length > 0) {
+  // Inbox: show on first turn OR when pending count changes (new task arrived mid-session)
+  const inboxPath = path.join(STATE_DIR, 'inbox.json');
+  if (fs.existsSync(inboxPath)) {
+    try {
+      const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+      const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
+      if (pending.length > 0) {
+        // Re-show if first turn OR pending count changed since last shown
+        const countMarkerPath = path.join(STATE_DIR, '.protocol-shown', `${String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_')}-inbox-count`);
+        const lastCount = fs.existsSync(countMarkerPath) ? parseInt(fs.readFileSync(countMarkerPath, 'utf-8'), 10) : -1;
+        if (isFirstTurn || lastCount !== pending.length) {
           const labels = pending.map(t => t.title || t.workflowObjective || t.owner || 'untitled');
           console.log(`[CSO Inbox] ${pending.length} pending: ${labels.slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`);
           console.log(`[CSO Inbox] To manage: read/write ${path.join(STATE_DIR_ABS, 'inbox.json')}. Mark tasks done after completing.`);
+          try { fs.writeFileSync(countMarkerPath, String(pending.length)); } catch {}
         }
-      } catch {}
-    }
+      }
+    } catch {}
   }
 }
 

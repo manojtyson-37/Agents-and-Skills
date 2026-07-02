@@ -6,6 +6,7 @@
 
 - **State dir (absolute):** `/Users/manojaaa/Agents and Skills/.cso/state/`
 - **Decision ledger:** `/Users/manojaaa/Agents and Skills/.cso/decision/`
+- **Record decision:** `node "/Users/manojaaa/Agents and Skills/.cso/decision/record-decision.cjs" '{"context":"...","chosen":"...","decidedBy":"user|decision-maker","confidence":"high|medium|low","rationale":"...","reversible":true,"override":false}'`
 - **Checkpoint:** `node "/Users/manojaaa/Agents and Skills/.cso/checkpoint/log-session.cjs"`
 - **Dashboard:** http://localhost:3000 (reads `.cso/state/`)
 
