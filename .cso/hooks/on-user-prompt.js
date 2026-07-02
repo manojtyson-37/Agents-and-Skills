@@ -191,35 +191,47 @@ function injectCSOProtocol(sessionId) {
     console.log('[CSO] protocol active (plan→execute→review→notify; personas: engineer/test-engineer/code-reviewer/orchestrator/ops/release-engineer) — /cso-learn MANDATORY before "CSO: Complete."');
   }
 
-  // Also inject current workflow status if one exists
+  // Inject workflow status + inbox once per session only — printing these on every
+  // turn was ~150+ tokens of repeated context that added zero information after turn 1.
+  const isFirstTurn = shouldShowFullProtocol(sessionId + '-status');
+
+  // Workflow status: first turn shows full detail; subsequent turns show compact 1-liner
   if (fs.existsSync(WORKFLOW_STATE)) {
     try {
       const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
       if (state.status === 'in-progress' || state.status === 'bootstrapping') {
         const completed = (state.completedTasks || []).length;
         const total = Object.keys(state.tasks || {}).length;
-        console.log(`[CSO] Resuming workflow: ${state.objective}`);
-        console.log(`[CSO] In-progress: ${state.inProgressTask} (${state.elapsedTime || '?'})`);
-        console.log(`[CSO] Progress: ${completed}/${total} tasks done`);
-        if (state.queuedTasks?.length > 0) {
-          console.log(`[CSO] Next tasks: ${state.queuedTasks.join(', ')}`);
+        // Truncate objective — scheduled-task XML blobs were printing hundreds of tokens
+        const shortObj = (state.objective || '').replace(/\s+/g, ' ').substring(0, 80);
+        if (isFirstTurn) {
+          console.log(`[CSO] Resuming workflow: ${shortObj}${state.objective?.length > 80 ? '...' : ''}`);
+          console.log(`[CSO] In-progress: ${state.inProgressTask} (${state.elapsedTime || '?'})`);
+          console.log(`[CSO] Progress: ${completed}/${total} tasks done`);
+          if (state.queuedTasks?.length > 0) {
+            console.log(`[CSO] Next tasks: ${state.queuedTasks.join(', ')}`);
+          }
+        } else {
+          console.log(`[CSO] Workflow active: ${shortObj}... (${completed}/${total} done)`);
         }
       }
     } catch {}
   }
 
-  // Surface inbox tasks
-  const inboxPath = path.join(STATE_DIR, 'inbox.json');
-  if (fs.existsSync(inboxPath)) {
-    try {
-      const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
-      const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
-      if (pending.length > 0) {
-        const labels = pending.map(t => t.title || t.workflowObjective || t.owner || 'untitled');
-        console.log(`[CSO Inbox] ${pending.length} pending: ${labels.slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`);
-        console.log(`[CSO Inbox] To manage: read/write ${path.join(STATE_DIR_ABS, 'inbox.json')}. Mark tasks done after completing.`);
-      }
-    } catch {}
+  // Inbox: show only on first turn per session
+  if (isFirstTurn) {
+    const inboxPath = path.join(STATE_DIR, 'inbox.json');
+    if (fs.existsSync(inboxPath)) {
+      try {
+        const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+        const pending = (inbox.tasks || []).filter(t => t.status === 'pending');
+        if (pending.length > 0) {
+          const labels = pending.map(t => t.title || t.workflowObjective || t.owner || 'untitled');
+          console.log(`[CSO Inbox] ${pending.length} pending: ${labels.slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`);
+          console.log(`[CSO Inbox] To manage: read/write ${path.join(STATE_DIR_ABS, 'inbox.json')}. Mark tasks done after completing.`);
+        }
+      } catch {}
+    }
   }
 }
 

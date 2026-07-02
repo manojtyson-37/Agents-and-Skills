@@ -11,10 +11,12 @@ async function onLearnCheck() {
     const input = await readStdin();
     if (!input) return;
 
-    // Always remind about the plan step — fires every turn so model can't forget protocol
-    // at execution time. Warning only (UserPromptSubmit cannot block), but appears before
-    // the model's first output token.
-    console.log(`[CSO] PROTOCOL: Show plan BEFORE any tool call. Update workflow_state.json + task_history.jsonl after each task. Prod verify (location.reload) after every push.`);
+    // Only print the plan-step reminder once per session — it's ~40 tokens that used to
+    // fire on every single turn for zero added value after turn 1.
+    const sessionId = extractSessionId(input);
+    if (isFirstTurnThisSession(sessionId, 'learn-check')) {
+      console.log(`[CSO] PROTOCOL: Show plan BEFORE any tool call. Update workflow_state.json + task_history.jsonl after each task. Prod verify (location.reload) after every push.`);
+    }
 
     // Check if there were corrections in this session (feedback.jsonl has recent dissatisfied entries)
     const recentCorrections = getRecentCorrections();
@@ -75,6 +77,23 @@ function checkMemoryUpdated() {
   }
 
   return false;
+}
+
+function extractSessionId(raw) {
+  try { return JSON.parse(raw).session_id || null; } catch { return null; }
+}
+
+function isFirstTurnThisSession(sessionId, namespace) {
+  if (!sessionId) return true;
+  const markerDir = path.join(STATE_DIR, '.protocol-shown');
+  const safeId = String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_') + '-' + namespace;
+  try {
+    if (!fs.existsSync(markerDir)) fs.mkdirSync(markerDir, { recursive: true });
+    const markerPath = path.join(markerDir, safeId);
+    if (fs.existsSync(markerPath)) return false;
+    fs.writeFileSync(markerPath, new Date().toISOString());
+    return true;
+  } catch { return true; }
 }
 
 function readStdin() {

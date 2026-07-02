@@ -98,6 +98,15 @@ The personas are real Claude Code subagents (in the Agents-and-Skills repo's `.c
 
 Delegate when work is isolatable and benefits from a fresh, focused context. Do simple inline work inline.
 
+### Subagent prompt discipline (context budget)
+
+Subagents start with a fresh context window — do NOT paste the full parent conversation into their prompt. Pass only:
+1. **Task brief** (2-3 sentences: what, why, success criteria)
+2. **Key file paths** they need to read
+3. **Minimal scaffolding** (e.g. state file location, relevant constraint)
+
+Never pass: full CLAUDE.md text, parent memory dump, long conversation excerpts, or redundant CSO protocol. The subagent's system prompt already has the protocol via CLAUDE.md injection. Lean prompts = faster, cheaper, better-focused subagents.
+
 ### Model assignments per persona
 
 Always pass `model:` when spawning a subagent. Use the right model for the work — don't default-inherit on everything:
