@@ -30,3 +30,6 @@
 - [CSO Reliability Gaps](project_cso_reliability_gaps.md) — workflow_state/metrics decorative, inbox dead 57h+, 5/7 agents never invoked ever. Trust in-session work, not cross-session tracking.
 - [Real Review Pattern](feedback_real_review_pattern.md) — confirmed good: every code-reviewer dispatch this session found a real bug. Keep dispatching for real, context-rich prompts, never skip.
 - [Isolated Testing Catches Masked Bugs](feedback_isolated_testing_catches_masked_bugs.md) — testing hooks against real session state can mask fallthrough bugs; isolate with throwaway repos + swapped state files.
+- [iOS Keyboard + NavBar Modal Fix](feedback_ios_keyboard_modal.md) — fixed inset-0 bottom sheets: sticky footer for keyboard + z-[60] to beat NavBar z-50 DOM-order win.
+- [Mobile UI Verification Protocol](feedback_mobile_ui_verification.md) — mobile fixes need 390px viewport + prod screenshot; deploy status and DOM inspection are not verification.
+- [Skill Usage Discipline](feedback_skill_usage_discipline.md) — skills must be actually invoked (tool call visible); superpowers/verify/cso-learn skipped under task pressure = protocol violation.

@@ -15,4 +15,8 @@ User asked for a full CSO audit after being frustrated that recorded feedback "d
 
 Separately flagged but unresolved: CSO hooks are wired only in `~/.claude/settings.json` on this one machine — any Claude Code session from a different device/environment has no CSO injection at all. If "CSO not invoked on new sessions" recurs, check whether that session is even running on this machine before assuming it's a logic bug.
 
-Related: [[feedback_unused_routing_table]] (the specific incident this generalizes from).
+**2026-07-01 update — hooks need iterative strengthening too:** The Stop gate existed (Sixth gate: prod verify after push) but was too weak — it accepted DOM inspection (javascript_tool/read_page) as "verification." The NavBar z-index bug was invisible without a visual screenshot. When the user said "fix all of these and ensure important things do not get missed," the correct action was to update the *hook itself* to require navigate + screenshot, not to add more CLAUDE.md text. Hook logic drifts the same way prose does if never revisited. Pattern: when a gate keeps letting bugs through, read the gate's actual checking logic — the weakness is usually in what it accepts as evidence, not that the gate is missing entirely.
+
+Also confirmed (2026-07-01): when user says "CSO to take charge and take decisions," the correct response is autonomous action — diagnose the gaps, decide the fix, implement it in code, commit, no confirmation requested. User does not want to be asked what to do; they want CSO to decide and report back what was changed.
+
+Related: [[feedback_unused_routing_table]] (the specific incident this generalizes from), [[feedback_mobile_ui_verification]] (the gate weakness this fixed).
