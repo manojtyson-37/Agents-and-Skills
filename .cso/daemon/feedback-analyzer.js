@@ -63,7 +63,10 @@ function readInbox() {
 }
 
 function writeInbox(inbox) {
-  fs.writeFileSync(INBOX_PATH, JSON.stringify(inbox, null, 2));
+  // Atomic write: temp file + rename avoids partial reads from concurrent daemon/session writes
+  const tmp = INBOX_PATH + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(inbox, null, 2));
+  fs.renameSync(tmp, INBOX_PATH);
 }
 
 // Returns map of issue-category → list of recent dissatisfied entries
@@ -84,14 +87,15 @@ function groupDissatisfaction(sinceMs) {
   return groups;
 }
 
-// Check if a self-repair task for this category was already logged in decisions.jsonl recently
+// Check if a self-repair task for this category was already logged in decisions.jsonl recently.
+// Uses structured field match (d.source + d.category) not substring search — substring would
+// match 'design' inside 'designed' or 'designation', causing false-positive dedup suppression.
 function alreadyAddressed(category, sinceMs) {
   const decisions = readJsonl(DECISIONS_LOG);
   return decisions.some(d => {
     const ts = Date.parse(d.timestamp || 0);
     if (ts < sinceMs) return false;
-    const text = JSON.stringify(d).toLowerCase();
-    return text.includes('self-repair') && text.includes(category);
+    return d.source === 'self-repair' && d.category === category;
   });
 }
 
@@ -112,7 +116,10 @@ export function analyzeAndRepair() {
   const sinceMs = now - LOOKBACK_MS;
   const groups = groupDissatisfaction(sinceMs);
   const triggered = [];
+  const newTasks = [];
 
+  // Accumulate all tasks first, then write inbox once — avoids multiple read-modify-write
+  // cycles that widen the race window with concurrent session-driven inbox writers.
   for (const [category, entries] of Object.entries(groups)) {
     if (entries.length < REPAIR_THRESHOLD) continue;
     if (alreadyAddressed(category, sinceMs)) continue;
@@ -121,7 +128,7 @@ export function analyzeAndRepair() {
     const template = REPAIR_TEMPLATES[category] || REPAIR_TEMPLATES['default'];
     const excerpts = entries.slice(-3).map(e => (e.excerpt || '').substring(0, 120));
 
-    const task = {
+    newTasks.push({
       id: `self-repair-${category}-${Date.now()}`,
       title: template.title,
       description: template.description,
@@ -134,27 +141,30 @@ export function analyzeAndRepair() {
       triggerCount: entries.length,
       recentExcerpts: excerpts,
       owner: 'engineer',
-    };
-
-    const inbox = readInbox();
-    inbox.tasks = inbox.tasks || [];
-    inbox.tasks.push(task);
-    writeInbox(inbox);
-
-    // Log to decisions.jsonl so the cooldown + stop-gate learn checks can find it
-    const decisionEntry = {
-      timestamp: new Date().toISOString(),
-      decision: `Self-repair triggered: ${category} (${entries.length} dissatisfied entries in 48h)`,
-      reason: `Feedback pattern threshold crossed. Task written to inbox: ${task.id}`,
-      persona: 'orchestrator',
-      category,
-      source: 'self-repair',
-    };
-    fs.appendFileSync(DECISIONS_LOG, JSON.stringify(decisionEntry) + '\n');
-
-    triggered.push(category);
-    console.log(`[CSO Self-Repair] Triggered for category: ${category} (${entries.length} entries) → inbox task created`);
+    });
+    triggered.push({ category, count: entries.length });
   }
 
-  return triggered;
+  if (newTasks.length > 0) {
+    // Single atomic inbox write for all new tasks this pass
+    const inbox = readInbox();
+    inbox.tasks = (inbox.tasks || []).concat(newTasks);
+    writeInbox(inbox);
+
+    // Log each to decisions.jsonl for cooldown + stop-gate checks
+    for (const task of newTasks) {
+      const decisionEntry = {
+        timestamp: new Date().toISOString(),
+        decision: `Self-repair triggered: ${task.category} (${task.triggerCount} dissatisfied entries in 48h)`,
+        reason: `Feedback pattern threshold crossed. Task written to inbox: ${task.id}`,
+        persona: 'orchestrator',
+        category: task.category,
+        source: 'self-repair',
+      };
+      fs.appendFileSync(DECISIONS_LOG, JSON.stringify(decisionEntry) + '\n');
+      console.log(`[CSO Self-Repair] Triggered for category: ${task.category} (${task.triggerCount} entries) → inbox task created`);
+    }
+  }
+
+  return triggered.map(t => t.category);
 }
