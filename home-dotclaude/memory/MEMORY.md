@@ -40,5 +40,6 @@
 - [Ghost workflow detection](feedback_ghost_workflow_detection.md) — Multi-layer NL detection required; word boundaries, modal+task combos, length gate; single keyword match fires on questions
 - [CLAUDE.md length limit](feedback_claude_md_length.md) — Keep under ~150 lines; tables+bullets only; prose rationale and historical notes cause protocol to be dropped under task pressure
 - [CSO autonomy preferences](feedback_cso_autonomy_preferences.md) — Scope→pick default; deploys→auto after staging; tech→best solution; quality→full TDD; errors→3 tries then surface
+- [CSO self-repair design](feedback_cso_self_repair_design.md) — cso-learn feeds self-repair loop; user expects CSO to queue fixes for its own gaps without being asked
 
 **See individual memory files (feedback_*.md, project_*.md, reference_*.md) for full context, rationale, and examples.**
