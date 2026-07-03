@@ -40,9 +40,22 @@ async function onUserPrompt() {
       }
     }
 
-    // Detect if this is a task request
-    const taskKeywords = ['build', 'create', 'implement', 'write', 'fix', 'add', 'develop', 'design', 'setup', 'configure', 'refactor', 'optimize', 'debug', 'test', 'deploy', 'remove', 'update', 'change', 'migrate', 'integrate'];
-    const isTask = taskKeywords.some(k => prompt.toLowerCase().includes(k));
+    // Detect if this is a real task request — not a question or conversational message.
+    // Old: any single keyword from a broad list. Problems: "fix" in "how do I fix X?",
+    // "update" in "what update did you make?", etc. all triggered ghost workflows.
+    // New rules (all must pass):
+    //   1. Not a question — skip if prompt starts with a question word or ends with "?"
+    //   2. Minimum length — conversational one-liners are rarely real tasks
+    //   3. At least 2 distinct task signals OR a clear imperative opener
+    const lp = prompt.toLowerCase().trim();
+    const questionStarters = /^(is|are|was|were|what|how|why|when|where|who|can|could|does|did|do|will|would|should|have|has|had|which|whose|whom)\b/i;
+    const isQuestion = questionStarters.test(lp) || lp.endsWith('?');
+    if (isQuestion || prompt.length < 40) return;
+
+    const taskKeywords = ['build', 'create', 'implement', 'write', 'fix', 'add', 'develop', 'design', 'setup', 'configure', 'refactor', 'optimize', 'debug', 'deploy', 'remove', 'migrate', 'integrate', 'generate', 'make', 'convert', 'move', 'rename', 'delete', 'replace'];
+    const matchedKeywords = taskKeywords.filter(k => lp.includes(k));
+    const imperativeOpener = /^(build|create|implement|write|fix|add|develop|design|set up|configure|refactor|optimize|debug|deploy|remove|migrate|integrate|generate|make|go ahead|please|run|update|change)\b/i;
+    const isTask = matchedKeywords.length >= 2 || imperativeOpener.test(lp);
 
     if (!isTask) {
       return;
