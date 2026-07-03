@@ -35,4 +35,10 @@
 - **Bootstrap drift**: Rerun after adding agents/skills; verify with ls/readlink
 - **Isolated testing**: Test against real state can mask bugs; use throwaway repos
 
+- [AskUserQuestion fallback](feedback_askuserquestion_fallback.md) — Tool fails with internal error; fall back to plain-text A/B/C questions immediately, no retry
+- [Stop gate session scope](feedback_stop_gate_session_scope.md) — Use mtime>=sessionStart not existence to detect "did this session touch state files"; persistent files make existence always true
+- [Ghost workflow detection](feedback_ghost_workflow_detection.md) — Multi-layer NL detection required; word boundaries, modal+task combos, length gate; single keyword match fires on questions
+- [CLAUDE.md length limit](feedback_claude_md_length.md) — Keep under ~150 lines; tables+bullets only; prose rationale and historical notes cause protocol to be dropped under task pressure
+- [CSO autonomy preferences](feedback_cso_autonomy_preferences.md) — Scope→pick default; deploys→auto after staging; tech→best solution; quality→full TDD; errors→3 tries then surface
+
 **See individual memory files (feedback_*.md, project_*.md, reference_*.md) for full context, rationale, and examples.**
