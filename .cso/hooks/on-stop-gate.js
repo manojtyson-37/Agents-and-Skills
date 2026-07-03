@@ -156,7 +156,24 @@ async function main() {
       }
     }
 
-    // Sixth gate: code was pushed to remote (HEAD == remote) but no Chrome MCP prod verify
+    // Sixth gate: commit touches UI/app code but no local verify happened this session.
+    // The prod-verify gate (below) only fires on push — this catches the earlier failure:
+    // model commits broken UI without ever running the dev server or taking a screenshot.
+    // Scope: only UI-adjacent files (.tsx/.jsx/.css/.html/.vue/.svelte) outside hooks/config.
+    // Hook-only and pure backend commits are excluded — they don't need a browser check.
+    if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesPreviewableCode()) {
+      const localVerified = transcriptHasLocalVerify(input.transcript_path, sessionStart);
+      if (!localVerified) {
+        return block(
+          `A commit at ${new Date(recentCommitMs).toISOString()} touches UI/app code but no local ` +
+          `verification was found this session. REQUIRED: start the dev server (preview_start), ` +
+          `take a screenshot (preview_screenshot), and confirm the change looks correct before ` +
+          `committing. Run /verify or use preview_* tools, then end this turn.`
+        );
+      }
+    }
+
+    // Seventh gate: code was pushed to remote (HEAD == remote) but no Chrome MCP prod verify
     // call appears in the transcript after the commit. Every push to this Vercel-deployed
     // repo requires a location.reload(true) and at least one page read to confirm prod state.
     // Only fires when HEAD matches remote (i.e., push already happened this session).
@@ -289,6 +306,41 @@ function lastCommitTouchesTestableCode() {
   } catch {
     return false; // no package.json / no test script -> nothing to gate on
   }
+}
+
+function lastCommitTouchesPreviewableCode() {
+  const files = lastCommitFiles();
+  if (!files) return false;
+  return files.some(f =>
+    /\.(tsx|jsx|css|scss|html|vue|svelte)$/i.test(f) &&
+    !f.startsWith('.cso/') && !f.startsWith('home-dotclaude/')
+  );
+}
+
+// Checks transcript for any preview_screenshot call this session — proof the dev server
+// was running and the UI was visually checked before committing.
+function transcriptHasLocalVerify(transcriptPath, sinceMs) {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return false;
+  try {
+    const all = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
+    const lines = all.length > MAX_SCAN_LINES ? all.slice(-MAX_SCAN_LINES) : all;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        const ts = Date.parse(e.timestamp || 0);
+        if (Number.isNaN(ts) || ts < sinceMs) continue;
+        const content = e.message && e.message.content;
+        if (!Array.isArray(content)) continue;
+        for (const c of content) {
+          if (!c || c.type !== 'tool_use') continue;
+          const name = (c.name || '').toLowerCase();
+          if (name === 'mcp__claude_preview__preview_screenshot') return true;
+          if (name === 'mcp__claude_in_chrome__computer' && c.input && c.input.action === 'screenshot') return true;
+        }
+      } catch {}
+    }
+  } catch {}
+  return false;
 }
 
 // Real verification: parse the actual session transcript for Agent tool_use blocks with
