@@ -93,7 +93,7 @@ async function monitorWorkflow() {
 }
 
 async function monitorInboxAge() {
-  const inboxPath = new URL('../state/inbox.json', import.meta.url).pathname;
+  const inboxPath = path.join(STATE_DIR, 'inbox.json');
   if (!fs.existsSync(inboxPath)) return;
   try {
     const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
