@@ -293,17 +293,48 @@ function surfaceInbox() {
     const nonRepair = pending.filter(t => t.source !== 'self-repair');
     if (nonRepair.length === 0 && repairTasks.length > 0) return;
 
+    // Auto-promote: find the oldest "ready" task group (not blocked, not self-repair).
+    // Tasks >24h old with no action are stale — surface as ACTION REQUIRED so the model
+    // treats it as the session objective rather than background noise in a list.
+    const STALE_MS = 24 * 3600000;
+    const now = Date.now();
+    let promoted = null;
+    let promotedAge = 0;
+
+    for (const tasks of groups.values()) {
+      const t = tasks[0];
+      if (t.source === 'self-repair') continue;
+      if (t.priority === 'blocked') continue;
+      const ageMs = t.createdAt ? now - new Date(t.createdAt).getTime() : 0;
+      if (ageMs > STALE_MS && ageMs > promotedAge) {
+        promoted = tasks;
+        promotedAge = ageMs;
+      }
+    }
+
+    if (promoted) {
+      const t = promoted[0];
+      const ageH = Math.round(promotedAge / 3600000);
+      const label = t.workflowObjective || t.title || t.context || 'untitled';
+      const owners = [...new Set(promoted.map(x => x.owner).filter(Boolean))];
+      console.log(`[CSO] ACTION REQUIRED — inbox task stale ${ageH}h with no action:`);
+      console.log(`[CSO]   Objective: ${label}`);
+      console.log(`[CSO]   Owners: ${owners.join(', ')} | ${promoted.length} subtask(s)`);
+      console.log(`[CSO]   Start this NOW as the session objective. Plan → Execute → Complete.`);
+    }
+
     console.log(`[CSO Inbox] ${nonRepair.length} pending task(s) in ${groups.size} workflow(s):`);
     let i = 0;
     for (const tasks of groups.values()) {
       const t = tasks[0];
-      if (t.source === 'self-repair') continue; // already shown above
+      if (t.source === 'self-repair') continue;
       i++;
       const age = t.createdAt ? Math.round((Date.now() - new Date(t.createdAt).getTime()) / 3600000) + 'h ago' : '';
       const label = t.title || t.workflowObjective || t.context || t.owner || 'untitled';
       const owners = [...new Set(tasks.map(x => x.owner).filter(Boolean))];
       const ownerStr = tasks.length > 1 ? ` (${tasks.length} subtasks: ${owners.join(', ')})` : '';
-      console.log(`[CSO Inbox] ${i}. ${label}${ownerStr} [${t.workspace || 'unknown'}] ${t.priority || ''} ${age}`);
+      const staleFlag = t.createdAt && (now - new Date(t.createdAt).getTime()) > STALE_MS ? ' ⚠️ STALE' : '';
+      console.log(`[CSO Inbox] ${i}. ${label}${ownerStr} [${t.priority || ''}] ${age}${staleFlag}`);
     }
   } catch {}
 }

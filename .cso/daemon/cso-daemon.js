@@ -37,6 +37,7 @@ async function startDaemon() {
 
 async function monitor() {
   await monitorWorkflow();
+  await monitorInboxAge();
   await monitorFeedback();
 }
 
@@ -88,6 +89,35 @@ async function monitorWorkflow() {
     const hours = Math.floor(minutes / 60);
     state.elapsedTime = hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes} minutes`;
     fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
+  }
+}
+
+async function monitorInboxAge() {
+  const inboxPath = new URL('../state/inbox.json', import.meta.url).pathname;
+  if (!fs.existsSync(inboxPath)) return;
+  try {
+    const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+    const now = Date.now();
+    const STALE_MS = 24 * 3600000;
+    let changed = false;
+    for (const t of (inbox.tasks || [])) {
+      if (t.status !== 'pending' || t.priority === 'high' || t.source === 'self-repair') continue;
+      const ageMs = t.createdAt ? now - new Date(t.createdAt).getTime() : 0;
+      if (ageMs > STALE_MS && t.priority !== 'escalated') {
+        t.priority = 'escalated';
+        t.escalatedAt = new Date().toISOString();
+        changed = true;
+        console.log(`[CSO Daemon] Escalated stale inbox task: ${t.title || t.workflowObjective || t.id} (${Math.round(ageMs / 3600000)}h old)`);
+      }
+    }
+    if (changed) {
+      inbox.lastUpdated = new Date().toISOString();
+      const tmp = inboxPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(inbox, null, 2));
+      fs.renameSync(tmp, inboxPath);
+    }
+  } catch (err) {
+    console.error('[CSO Daemon] Inbox age monitor error:', err.message);
   }
 }
 

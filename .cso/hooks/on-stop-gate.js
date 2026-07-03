@@ -156,6 +156,27 @@ async function main() {
       }
     }
 
+    // Fifth-B gate: workflow stuck in bootstrapping with 0 tasks at session end.
+    // Root cause of "workflow state decorative" — hook creates workflow, model does real work,
+    // but never writes tasks to workflow_state.json, leaving it perpetually bootstrapping.
+    // Only fires when real work happened (commit landed) — idle sessions are fine to abandon.
+    const wfPath = path.join(STATE_DIR, 'workflow_state.json');
+    if (recentCommitMs && recentCommitMs >= sessionStart && fs.existsSync(wfPath)) {
+      try {
+        const wf = JSON.parse(fs.readFileSync(wfPath, 'utf-8'));
+        const isGhostBootstrap = wf.status === 'bootstrapping' && Object.keys(wf.tasks || {}).length === 0;
+        if (isGhostBootstrap) {
+          return block(
+            `Workflow is still in "bootstrapping" state with 0 tasks, but real work (commit) happened ` +
+            `this session. Either: (a) write the task plan to workflow_state.json ` +
+            `(set status:"in-progress", populate tasks:{}, set inProgressTask), ` +
+            `or (b) set status:"abandoned" to explicitly close it. ` +
+            `Path: ${wfPath}`
+          );
+        }
+      } catch {}
+    }
+
     // Sixth gate: commit touches UI/app code but no local verify happened this session.
     // The prod-verify gate (below) only fires on push — this catches the earlier failure:
     // model commits broken UI without ever running the dev server or taking a screenshot.
