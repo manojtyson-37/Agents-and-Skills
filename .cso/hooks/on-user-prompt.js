@@ -32,7 +32,10 @@ async function onUserPrompt() {
     // Check if workflow already exists and is active
     if (fs.existsSync(WORKFLOW_STATE)) {
       const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-      if (state.status === 'in-progress' || state.status === 'bootstrapping') {
+      const hasRealTasks = Object.keys(state.tasks || {}).length > 0;
+      // Don't block on a ghost bootstrapped workflow (0 tasks) — it will be archived
+      // by on-session-start.js; blocking here would wedge new-task detection all session.
+      if ((state.status === 'in-progress' || state.status === 'bootstrapping') && hasRealTasks) {
         return;
       }
     }
@@ -193,7 +196,8 @@ function injectCSOProtocol(sessionId) {
 
   // Inject workflow status + inbox once per session only — printing these on every
   // turn was ~150+ tokens of repeated context that added zero information after turn 1.
-  const isFirstTurn = shouldShowFullProtocol(sessionId + '-status');
+  const safeSessionId = sessionId || `anon-${Date.now()}`;
+  const isFirstTurn = shouldShowFullProtocol(safeSessionId + '-status');
 
   // Workflow status: first turn shows full detail; subsequent turns show compact 1-liner
   if (fs.existsSync(WORKFLOW_STATE)) {
