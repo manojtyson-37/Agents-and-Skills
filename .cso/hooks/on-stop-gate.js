@@ -125,22 +125,31 @@ async function main() {
       const stateWindow = recentCommitMs - 10 * 60 * 1000;
       const wfPath = path.join(STATE_DIR, 'workflow_state.json');
       const thPath = path.join(STATE_DIR, 'task_history.jsonl');
-      const wfUpdated = fs.existsSync(wfPath) && fs.statSync(wfPath).mtimeMs >= stateWindow;
-      const thUpdated = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= stateWindow;
-      if (!wfUpdated) {
-        return block(
-          `A git commit landed at ${new Date(recentCommitMs).toISOString()} but workflow_state.json ` +
-          `was not updated this session. Update it (set the task to completed, move inProgressTask) ` +
-          `before ending this turn. Path: ${wfPath}`
-        );
-      }
-      if (!thUpdated) {
-        return block(
-          `A git commit landed at ${new Date(recentCommitMs).toISOString()} but task_history.jsonl ` +
-          `has not been appended this session. Log the completed task ` +
-          `({"timestamp":"...","task":"...","status":"completed","persona":"engineer","commit":"..."}) ` +
-          `before ending this turn. Path: ${thPath}`
-        );
+      // Skip state-file gates entirely if no workflow was ever created this session —
+      // conversational sessions (questions, audits, reviews) make commits (hook fixes,
+      // memory writes) without running a CSO workflow. Requiring state-file updates in
+      // those sessions is a false positive: there is no task to mark completed.
+      const wfExists = fs.existsSync(wfPath);
+      if (!wfExists) {
+        // No workflow → state gates do not apply. Fall through to done().
+      } else {
+        const wfUpdated = fs.statSync(wfPath).mtimeMs >= stateWindow;
+        const thUpdated = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= stateWindow;
+        if (!wfUpdated) {
+          return block(
+            `A git commit landed at ${new Date(recentCommitMs).toISOString()} but workflow_state.json ` +
+            `was not updated this session. Update it (set the task to completed, move inProgressTask) ` +
+            `before ending this turn. Path: ${wfPath}`
+          );
+        }
+        if (!thUpdated) {
+          return block(
+            `A git commit landed at ${new Date(recentCommitMs).toISOString()} but task_history.jsonl ` +
+            `has not been appended this session. Log the completed task ` +
+            `({"timestamp":"...","task":"...","status":"completed","persona":"engineer","commit":"..."}) ` +
+            `before ending this turn. Path: ${thPath}`
+          );
+        }
       }
     }
 
