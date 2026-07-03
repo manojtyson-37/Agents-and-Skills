@@ -41,25 +41,36 @@ async function onUserPrompt() {
     }
 
     // Detect if this is a real task request — not a question or conversational message.
-    // Old: any single keyword from a broad list. Problems: "fix" in "how do I fix X?",
-    // "update" in "what update did you make?", etc. all triggered ghost workflows.
-    // New rules (all must pass):
-    //   1. Not a question — skip if prompt starts with a question word or ends with "?"
-    //   2. Minimum length — conversational one-liners are rarely real tasks
-    //   3. At least 2 distinct task signals OR a clear imperative opener
+    // Rules:
+    //   1. Not a pure question (modal openers like "can you build X" ARE tasks if they
+    //      contain a task keyword — only pure info-seeking questions are filtered)
+    //   2. Minimum length — short conversational one-liners rarely need a workflow
+    //   3. Task signal: imperative opener (strong) OR 2+ keyword matches (with word boundaries)
     const lp = prompt.toLowerCase().trim();
-    const questionStarters = /^(is|are|was|were|what|how|why|when|where|who|can|could|does|did|do|will|would|should|have|has|had|which|whose|whom)\b/i;
-    const isQuestion = questionStarters.test(lp) || lp.endsWith('?');
-    if (isQuestion || prompt.length < 40) return;
 
-    const taskKeywords = ['build', 'create', 'implement', 'write', 'fix', 'add', 'develop', 'design', 'setup', 'configure', 'refactor', 'optimize', 'debug', 'deploy', 'remove', 'migrate', 'integrate', 'generate', 'make', 'convert', 'move', 'rename', 'delete', 'replace'];
-    const matchedKeywords = taskKeywords.filter(k => lp.includes(k));
-    const imperativeOpener = /^(build|create|implement|write|fix|add|develop|design|set up|configure|refactor|optimize|debug|deploy|remove|migrate|integrate|generate|make|go ahead|please|run|update|change)\b/i;
-    const isTask = matchedKeywords.length >= 2 || imperativeOpener.test(lp);
+    // Pure question starters without a task keyword = informational, skip.
+    // Exception: modal openers (can/could/should/will/would + task keyword) = polite task request.
+    const modalOpeners = /^(can|could|should|will|would|do|does|did)\b/;
+    const pureQuestionStarters = /^(is|are|was|were|what|how|why|when|where|who|have|has|had|which|whose|whom)\b/;
 
-    if (!isTask) {
-      return;
-    }
+    // Use word-boundary keyword matching to avoid "add"→"additional", "move"→"remove"
+    const taskKeywords = ['build', 'create', 'implement', 'write', 'fix', 'add', 'develop', 'design', 'setup', 'configure', 'refactor', 'optimize', 'debug', 'deploy', 'remove', 'migrate', 'integrate', 'generate', 'convert', 'rename', 'delete', 'replace', 'run', 'update', 'change'];
+    const keywordRegexes = taskKeywords.map(k => new RegExp(`\\b${k}\\b`));
+    const matchedKeywords = keywordRegexes.filter(r => r.test(lp));
+    const hasTaskKeyword = matchedKeywords.length > 0;
+
+    // Strong imperative opener — direct action verbs only, no "please"/"go ahead"
+    const imperativeOpener = /^(build|create|implement|write|fix|add|develop|design|set up|configure|refactor|optimize|debug|deploy|remove|migrate|integrate|generate|convert|rename|delete|replace|run|update|change)\b/;
+
+    const isPureQuestion = pureQuestionStarters.test(lp) || lp.endsWith('?');
+    const isModalWithTask = modalOpeners.test(lp) && hasTaskKeyword;
+    const isImperative = imperativeOpener.test(lp);
+    const hasMultipleSignals = matchedKeywords.length >= 2;
+
+    // Not a task if: pure question (not a modal+task combo), too short, or no task signal
+    if (isPureQuestion && !isModalWithTask) return;
+    if (prompt.length < 40) return;
+    if (!isImperative && !hasMultipleSignals && !isModalWithTask) return;
 
     // Create new workflow state
     const objectiveId = `workflow-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
