@@ -83,13 +83,24 @@ async function archiveCompletedWorkflow() {
   // its "freshness" timestamp kept getting refreshed for free). Use real task_history.jsonl
   // activity instead — same ground-truth source the dashboard now uses.
   if (state.status !== 'completed') {
-    const lastTouch = lastRealActivity() || state.startedAt;
-    if (!lastTouch) return;
-    const hoursSinceUpdate = (Date.now() - new Date(lastTouch).getTime()) / 3600000;
-    if (hoursSinceUpdate < 24) return;
-    console.log(`[CSO] Stale workflow detected (${Math.round(hoursSinceUpdate)}h since real activity). Archiving...`);
-    state.status = 'abandoned';
-    state.abandonedAt = new Date().toISOString();
+    // Archive ghost bootstrapped workflows immediately — these are workflows that were
+    // created by the hook but never got real tasks added (model didn't execute or session
+    // ended early). They have no value and inject stale "Resuming workflow" noise into
+    // every subsequent session, confusing the model into trying to resume an old objective.
+    const isGhostBootstrap = state.status === 'bootstrapping' && Object.keys(state.tasks || {}).length === 0;
+    if (isGhostBootstrap) {
+      console.log('[CSO] Ghost bootstrapped workflow detected (no tasks ever added). Archiving...');
+      state.status = 'abandoned';
+      state.abandonedAt = new Date().toISOString();
+    } else {
+      const lastTouch = lastRealActivity() || state.startedAt;
+      if (!lastTouch) return;
+      const hoursSinceUpdate = (Date.now() - new Date(lastTouch).getTime()) / 3600000;
+      if (hoursSinceUpdate < 24) return;
+      console.log(`[CSO] Stale workflow detected (${Math.round(hoursSinceUpdate)}h since real activity). Archiving...`);
+      state.status = 'abandoned';
+      state.abandonedAt = new Date().toISOString();
+    }
   }
 
   if (!fs.existsSync(ARCHIVE_DIR)) {

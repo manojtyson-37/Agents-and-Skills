@@ -199,7 +199,12 @@ function injectCSOProtocol(sessionId) {
   if (fs.existsSync(WORKFLOW_STATE)) {
     try {
       const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-      if (state.status === 'in-progress' || state.status === 'bootstrapping') {
+      const hasRealTasks = Object.keys(state.tasks || {}).length > 0;
+      // Skip ghost bootstrapped workflows (hook-created, never got real tasks) — showing
+      // them injects stale objectives into every prompt and confuses the model into
+      // "resuming" an old unrelated task. on-session-start.js now archives these on
+      // session start, but guard here too for same-session ghost scenarios.
+      if ((state.status === 'in-progress' || state.status === 'bootstrapping') && hasRealTasks) {
         const completed = (state.completedTasks || []).length;
         const total = Object.keys(state.tasks || {}).length;
         // Truncate objective — scheduled-task XML blobs were printing hundreds of tokens
