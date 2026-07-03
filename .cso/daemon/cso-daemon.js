@@ -3,6 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { analyzeAndRepair } from './feedback-analyzer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,6 +11,10 @@ const __dirname = path.dirname(__filename);
 const STATE_DIR = path.join(__dirname, '../state');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
 const NOTIFICATIONS_FILE = path.join(STATE_DIR, 'notifications.jsonl');
+
+// Self-repair runs every 5 minutes (not every 5s tick — feedback analysis is heavier)
+const REPAIR_INTERVAL_MS = 5 * 60 * 1000;
+let lastRepairRun = 0;
 
 async function startDaemon() {
   console.log('[CSO Daemon] Starting monitor...');
@@ -27,10 +32,15 @@ async function startDaemon() {
     process.exit(0);
   });
 
-  console.log('[CSO Daemon] Running. Monitoring workflow state...');
+  console.log('[CSO Daemon] Running. Monitoring workflow state + feedback patterns...');
 }
 
 async function monitor() {
+  await monitorWorkflow();
+  await monitorFeedback();
+}
+
+async function monitorWorkflow() {
   if (!fs.existsSync(WORKFLOW_STATE)) return;
 
   let state;
@@ -78,6 +88,21 @@ async function monitor() {
     const hours = Math.floor(minutes / 60);
     state.elapsedTime = hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes} minutes`;
     fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
+  }
+}
+
+async function monitorFeedback() {
+  const now = Date.now();
+  if (now - lastRepairRun < REPAIR_INTERVAL_MS) return;
+  lastRepairRun = now;
+
+  try {
+    const triggered = analyzeAndRepair();
+    if (triggered.length > 0) {
+      console.log(`[CSO Daemon] Self-repair: ${triggered.length} category(ies) queued → ${triggered.join(', ')}`);
+    }
+  } catch (err) {
+    console.error('[CSO Daemon] Self-repair error:', err.message);
   }
 }
 

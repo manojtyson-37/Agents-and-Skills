@@ -278,11 +278,27 @@ function surfaceInbox() {
       groups.get(key).push(t);
     }
 
-    console.log(`[CSO Inbox] ${pending.length} pending task(s) in ${groups.size} workflow(s):`);
+    // Self-repair tasks surface first and prominently — they represent CSO detecting
+    // its own failures and queueing a fix. Treat as highest priority.
+    const repairTasks = pending.filter(t => t.source === 'self-repair');
+    if (repairTasks.length > 0) {
+      console.log(`[CSO Self-Repair] ⚠️  ${repairTasks.length} auto-detected issue(s) queued for repair:`);
+      for (const t of repairTasks) {
+        console.log(`[CSO Self-Repair]   → ${t.title}`);
+        console.log(`[CSO Self-Repair]     ${t.description}`);
+        if (t.hints?.length) console.log(`[CSO Self-Repair]     Hints: ${t.hints.slice(0, 2).join(' | ')}`);
+      }
+    }
+
+    const nonRepair = pending.filter(t => t.source !== 'self-repair');
+    if (nonRepair.length === 0 && repairTasks.length > 0) return;
+
+    console.log(`[CSO Inbox] ${nonRepair.length} pending task(s) in ${groups.size} workflow(s):`);
     let i = 0;
     for (const tasks of groups.values()) {
-      i++;
       const t = tasks[0];
+      if (t.source === 'self-repair') continue; // already shown above
+      i++;
       const age = t.createdAt ? Math.round((Date.now() - new Date(t.createdAt).getTime()) / 3600000) + 'h ago' : '';
       const label = t.title || t.workflowObjective || t.context || t.owner || 'untitled';
       const owners = [...new Set(tasks.map(x => x.owner).filter(Boolean))];
