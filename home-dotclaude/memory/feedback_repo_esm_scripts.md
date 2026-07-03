@@ -22,3 +22,5 @@ the root ESM setting unless it has its own package.json.
 **How to apply:** When adding a runnable node script to this repo, either name it
 `.cjs`, or drop a `{"type":"commonjs"}` package.json in its dir, or write it as ESM
 (`import`). Default to `.cjs` for small CommonJS helpers. See [[project_cso_decision_system]].
+
+**2026-07-03 addition — ESM path resolution trap:** In ESM files, never use `new URL('../state/foo.json', import.meta.url).pathname` to build local file paths. The `pathname` property percent-encodes spaces (e.g. "Agents and Skills" → "Agents%20and%20Skills"), so `fs.existsSync()` silently returns false and the feature dead-codes itself. Always use `path.join(__dirname, ...)` instead — `__dirname` is pre-decoded. In ESM, define `__dirname` via `path.dirname(fileURLToPath(import.meta.url))` then use `path.join` everywhere. This killed inbox escalation silently in `cso-daemon.js` — caught only by code-reviewer.
