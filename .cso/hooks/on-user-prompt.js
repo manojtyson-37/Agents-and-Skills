@@ -40,7 +40,7 @@ async function onUserPrompt() {
         fs.writeFileSync(activationMarker, new Date().toISOString());
         const prompt = extractPromptText(rawInput) || '';
         const lp = prompt.toLowerCase();
-        const isResumePhrase = /\b(cso\s*(go|start|activate|continue|resume|pick\s*up|proceed)|continue|resume|proceed|go\s+ahead|start\s+now)\b/i.test(lp);
+        const isResumePhrase = /\b(cso\s*(go|start|activate|continue|resume|pick\s*up|proceed)|continue|resume|proceed|go\s+ahead|start\s+now|let'?s\s+go)\b/.test(lp);
         if (!isResumePhrase) {
           const completed = (state.completedTasks || []).length;
           const total = Object.keys(state.tasks || {}).length;
@@ -63,11 +63,10 @@ async function onUserPrompt() {
         }
       }
     }
-    // Always write activation marker after first turn so gate doesn't re-fire
-    if (isFirstTurn && sessionId) {
-      const safeId2 = String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_');
-      const activationMarker2 = path.join(markerDir, `${safeId2}-cso-activated`);
-      try { fs.writeFileSync(activationMarker2, new Date().toISOString()); } catch {}
+    // Always write activation marker after first turn so gate doesn't re-fire.
+    // Use already-computed safeId/activationMarker (covers null sessionId via 'anon' fallback).
+    if (isFirstTurn) {
+      try { fs.writeFileSync(activationMarker, new Date().toISOString()); } catch {}
     }
   } catch {
     // Never block the session over a gate bug
