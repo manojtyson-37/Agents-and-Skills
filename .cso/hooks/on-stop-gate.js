@@ -328,7 +328,10 @@ async function main() {
     // call appears in the transcript after the commit. Every push to this Vercel-deployed
     // repo requires a location.reload(true) and at least one page read to confirm prod state.
     // Only fires when HEAD matches remote (i.e., push already happened this session).
-    if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesCode() && isPushedToRemote()) {
+    // EXEMPTION: CSO infrastructure paths (.cso/, home-dotclaude/) are not deployed to Vercel —
+    // hook-only commits must not trigger prod-verify. Use lastCommitTouchesDeployedAppCode()
+    // not lastCommitTouchesCode() here (the latter returns true for .cso/hooks/*.js).
+    if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesDeployedAppCode() && isPushedToRemote()) {
       const prodVerified = transcriptHasProdVerify(input.transcript_path, recentCommitMs);
       if (!prodVerified) {
         return block(
@@ -457,6 +460,20 @@ function lastCommitTouchesTestableCode() {
   } catch {
     return false; // no package.json / no test script -> nothing to gate on
   }
+}
+
+// Deployed app code = files that actually end up on Vercel.
+// Excludes CSO infrastructure (.cso/, home-dotclaude/) — those are never deployed.
+// Gate 7 (prod-verify) uses this instead of lastCommitTouchesCode() to avoid
+// false-positive prod-verify blocks on hook-only commits.
+function lastCommitTouchesDeployedAppCode() {
+  const files = lastCommitFiles();
+  if (!files) return false;
+  return files.some(f =>
+    !/\.(md|jsonl?|gitignore)$/i.test(f) &&
+    !f.startsWith('.cso/') &&
+    !f.startsWith('home-dotclaude/')
+  );
 }
 
 function lastCommitTouchesPreviewableCode() {

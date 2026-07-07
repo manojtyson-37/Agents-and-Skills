@@ -48,6 +48,7 @@
 - [CSO skill routing confusion](feedback_cso_skill_routing_confusion.md) — /cso = security audit skill; CSO orchestrator = CLAUDE.md protocol; never invoke skill to "start CSO"; prose memory alone doesn't prevent — hook enforcement needed
 - [Self-repair task protection](feedback_self_repair_task_protection.md) — self-repair tasks (source:"self-repair") must NOT be cancelled with bulk-cancel; they are infrastructure fixes, not user tasks
 - [Feedback analyzer false positives](feedback_analyzer_false_positives.md) — <task-notification> XML blobs were classified as user dissatisfaction; fixed with XML guard + tighter patterns (commit 6558505)
+- [Stop gate scope exemptions](feedback_stop_gate_scope_exemptions.md) — prod-verify gate must not fire for .cso/ or home-dotclaude/ commits — use lastCommitTouchesDeployedAppCode() not lastCommitTouchesCode() for deployment gates
 - [CSO continuous learning](feedback_cso_continuous_learning.md) — user directive: cso-learn every session end, profile updated on every correction, self-repair tasks must execute not just queue
 
 **See individual memory files (feedback_*.md, project_*.md, reference_*.md) for full context, rationale, and examples.**
