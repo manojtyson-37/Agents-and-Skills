@@ -17,6 +17,62 @@ async function onUserPrompt() {
   injectCSOProtocol(sessionId);
   registerWorkspace();
 
+  // CSO ACTIVATION GATE — first turn of session with in-progress workflow.
+  // Root cause this fixes: injectCSOProtocol writes advisory text to stdout
+  // (system-reminder), which the LLM reads and ignores under conversational pressure.
+  // This gate returns {"continue": false} on the FIRST prompt of a session when
+  // there is a real in-progress workflow — forcing the LLM to explicitly plan before
+  // answering the user's message. Only fires once per session (marker-gated).
+  // Exempt: workflow-resuming phrases ("CSO go", "continue", "resume", "pick up") —
+  // these already carry explicit intent and don't need the redirect.
+  try {
+    const markerDir = path.join(STATE_DIR, '.protocol-shown');
+    if (!fs.existsSync(markerDir)) fs.mkdirSync(markerDir, { recursive: true });
+    const safeId = String(sessionId || 'anon').replace(/[^a-zA-Z0-9-]/g, '_');
+    const activationMarker = path.join(markerDir, `${safeId}-cso-activated`);
+    const isFirstTurn = !fs.existsSync(activationMarker);
+
+    if (isFirstTurn && fs.existsSync(WORKFLOW_STATE)) {
+      const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+      const hasRealTasks = Object.keys(state.tasks || {}).length > 0;
+      if (state.status === 'in-progress' && hasRealTasks) {
+        // Write marker before blocking so re-invoke after user acts doesn't loop
+        fs.writeFileSync(activationMarker, new Date().toISOString());
+        const prompt = extractPromptText(rawInput) || '';
+        const lp = prompt.toLowerCase();
+        const isResumePhrase = /\b(cso\s*(go|start|activate|continue|resume|pick\s*up|proceed)|continue|resume|proceed|go\s+ahead|start\s+now)\b/i.test(lp);
+        if (!isResumePhrase) {
+          const completed = (state.completedTasks || []).length;
+          const total = Object.keys(state.tasks || {}).length;
+          const shortObj = (state.objective || '').substring(0, 100);
+          const inProgressTask = state.inProgressTask || 'unknown';
+          process.stdout.write(JSON.stringify({
+            continue: false,
+            reason:
+              `CSO ACTIVATION REQUIRED — workflow in progress but CSO protocol not started.\n\n` +
+              `Workflow: "${shortObj}"\n` +
+              `In-progress task: ${inProgressTask} (${completed}/${total} done)\n\n` +
+              `REQUIRED: Before processing the user message, you MUST:\n` +
+              `1. Output "CSO: [objective]"\n` +
+              `2. Show the remaining plan with owners and estimates\n` +
+              `3. Pick up the in-progress task and execute it\n\n` +
+              `The user message was: "${prompt.substring(0, 200)}"\n` +
+              `Answer it AFTER completing the CSO plan header. Do not respond as a chatbot first.`
+          }));
+          return;
+        }
+      }
+    }
+    // Always write activation marker after first turn so gate doesn't re-fire
+    if (isFirstTurn && sessionId) {
+      const safeId2 = String(sessionId).replace(/[^a-zA-Z0-9-]/g, '_');
+      const activationMarker2 = path.join(markerDir, `${safeId2}-cso-activated`);
+      try { fs.writeFileSync(activationMarker2, new Date().toISOString()); } catch {}
+    }
+  } catch {
+    // Never block the session over a gate bug
+  }
+
   try {
     if (!rawInput || rawInput.length < 5) {
       return;
