@@ -266,6 +266,15 @@ function injectCSOProtocol(sessionId) {
     console.log('[CSO Protocol] Skill routing: code-reviewer→/code-review,/security-review | engineer→/improve-codebase-architecture,/simplify,/verify | orchestrator→/cso-learn(MANDATORY before Complete),/find-skills,/grill-me | test-engineer→/verify | release-engineer→/init. Auto-invoke matching skills during EXECUTE. Use /find-skills if no skill fits.');
     console.log('[CSO Protocol] Format: "CSO: [objective]" then plan, then execute, then "CSO: Complete." with summary.');
     console.log('[CSO Protocol] CONTINUOUS LEARNING: dispatch decision-maker (haiku) for non-critical reversible choices; update user_decision_profile.md on every correction mid-session; run /cso-learn before every session end.');
+    // Inject context.md snapshot — token-efficient condensed state from last session end
+    const contextMdPath = path.join(STATE_DIR_ABS, 'context.md');
+    if (fs.existsSync(contextMdPath)) {
+      try {
+        const ctx = fs.readFileSync(contextMdPath, 'utf-8');
+        const prefixed = ctx.substring(0, 2000).split('\n').map(l => '[CSO Context] ' + l).join('\n');
+        console.log(prefixed);
+      } catch {}
+    }
   } else {
     // Keep the MANDATORY /cso-learn reminder even in the compact form — this exact
     // instruction was the one CLAUDE.md flagged as having zero real compliance before
