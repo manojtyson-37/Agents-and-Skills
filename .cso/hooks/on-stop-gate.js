@@ -41,38 +41,55 @@ async function main() {
     // and responds as chatbot. This gate blocks Stop if there's an escalated inbox
     // task with no decisions.jsonl entry proving it was addressed (started, deferred
     // with reason, or completed) this session.
+    // Session window: use input.session_start_ms if provided, else fall back to sessionStart (2h).
+    // This avoids re-blocking tasks that were deferred at hour 1 of a 3h+ session.
     {
+      const gate0Start = (input.session_start_ms && typeof input.session_start_ms === 'number')
+        ? input.session_start_ms : sessionStart;
       const inboxPath = path.join(STATE_DIR, 'inbox.json');
       if (fs.existsSync(inboxPath)) {
         try {
           const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
           const tasks = inbox.tasks || [];
-          // Find unique workflow objectives that are escalated + still pending
+          // Find unique workflows that are escalated + still pending.
+          // Skip tasks where wfId is falsy — no stable key, can't track or display meaningfully.
           const escalatedWorkflows = new Map();
           for (const t of tasks) {
             if (t.status === 'pending' && t.priority === 'escalated') {
               const wfId = t.workflowId || t.id;
+              if (!wfId) continue;
               if (!escalatedWorkflows.has(wfId)) {
-                escalatedWorkflows.set(wfId, t.workflowObjective || t.objective || wfId);
+                escalatedWorkflows.set(wfId, t.workflowObjective || t.objective || '');
               }
             }
           }
           if (escalatedWorkflows.size > 0) {
-            // Check decisions.jsonl for any entry this session that references these workflows
+            // Check decisions.jsonl: an entry qualifies if it was written this session AND
+            // has context:"inbox-escalated" AND its workflowId field matches exactly.
+            // Objective substring is a fallback only when objective is long enough (>=40 chars)
+            // to be unambiguous — prevents generic prefixes from clearing unrelated tasks.
             const addressed = new Set();
             if (fs.existsSync(DECISIONS_LOG)) {
-              const lines = fs.readFileSync(DECISIONS_LOG, 'utf-8').trim().split('\n').filter(Boolean);
+              const allLines = fs.readFileSync(DECISIONS_LOG, 'utf-8').trim().split('\n').filter(Boolean);
+              const lines = allLines.length > MAX_SCAN_LINES ? allLines.slice(-MAX_SCAN_LINES) : allLines;
               for (const line of lines) {
                 try {
                   const e = JSON.parse(line);
-                  const ts = Date.parse(e.timestamp || 0);
-                  if (ts < sessionStart) continue;
-                  const text = JSON.stringify(e).toLowerCase();
+                  // Fix: use ternary so missing timestamp → 0 (old), not NaN (passes filter)
+                  const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
+                  if (isNaN(ts) || ts < gate0Start) continue;
+                  if (e.context !== 'inbox-escalated') continue;
                   for (const [wfId, obj] of escalatedWorkflows) {
-                    // Match by workflow id or first 30 chars of objective
-                    if (text.includes(wfId.toLowerCase()) ||
-                        text.includes((obj || '').toLowerCase().slice(0, 30))) {
+                    // Primary: structured workflowId field match (exact, not substring)
+                    if (e.workflowId && String(e.workflowId).toLowerCase() === wfId.toLowerCase()) {
                       addressed.add(wfId);
+                      continue;
+                    }
+                    // Fallback: objective substring only when objective is long enough to be unambiguous
+                    if (obj && obj.length >= 40) {
+                      const needle = obj.toLowerCase().slice(0, 50);
+                      const hay = JSON.stringify(e).toLowerCase();
+                      if (hay.includes(needle)) addressed.add(wfId);
                     }
                   }
                 } catch {}
@@ -80,12 +97,13 @@ async function main() {
             }
             const unaddressed = [...escalatedWorkflows.entries()].filter(([id]) => !addressed.has(id));
             if (unaddressed.length > 0) {
-              const list = unaddressed.map(([, obj]) => `• ${(obj || '').slice(0, 80)}`).join('\n');
+              const list = unaddressed.map(([id, obj]) => `• ${(obj || id).slice(0, 80)}`).join('\n');
               return block(
                 `${unaddressed.length} escalated inbox task(s) were surfaced at session start but not addressed:\n${list}\n\n` +
                 `REQUIRED before ending this turn: either (a) start the task (write a plan to workflow_state.json and begin), ` +
                 `or (b) explicitly defer it with a reason by logging a decisions.jsonl entry with ` +
-                `{"timestamp":"...","context":"inbox-escalated","workflowId":"...","chosen":"deferred","rationale":"<real reason>"}. ` +
+                `{"timestamp":"...","context":"inbox-escalated","workflowId":"<exact id>","chosen":"deferred","rationale":"<real reason>"}. ` +
+                `workflowId values: ${unaddressed.map(([id]) => id).join(', ')}. ` +
                 `Ignoring escalated tasks is not allowed — address or formally defer each one.`
               );
             }
