@@ -35,6 +35,65 @@ async function main() {
     const sessionStart = Date.now() - 2 * 60 * 60 * 1000; // 2h lookback window
     const dispatchedPersonas = transcriptDispatchedPersonas(input.transcript_path, sessionStart);
 
+    // Gate 0: ACTION REQUIRED inbox task must be addressed before ending session.
+    // Root cause this fixes: session-start hook surfaces escalated inbox tasks as
+    // "Start this NOW" but nothing enforces that — the LLM reads it, says "noted",
+    // and responds as chatbot. This gate blocks Stop if there's an escalated inbox
+    // task with no decisions.jsonl entry proving it was addressed (started, deferred
+    // with reason, or completed) this session.
+    {
+      const inboxPath = path.join(STATE_DIR, 'inbox.json');
+      if (fs.existsSync(inboxPath)) {
+        try {
+          const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+          const tasks = inbox.tasks || [];
+          // Find unique workflow objectives that are escalated + still pending
+          const escalatedWorkflows = new Map();
+          for (const t of tasks) {
+            if (t.status === 'pending' && t.priority === 'escalated') {
+              const wfId = t.workflowId || t.id;
+              if (!escalatedWorkflows.has(wfId)) {
+                escalatedWorkflows.set(wfId, t.workflowObjective || t.objective || wfId);
+              }
+            }
+          }
+          if (escalatedWorkflows.size > 0) {
+            // Check decisions.jsonl for any entry this session that references these workflows
+            const addressed = new Set();
+            if (fs.existsSync(DECISIONS_LOG)) {
+              const lines = fs.readFileSync(DECISIONS_LOG, 'utf-8').trim().split('\n').filter(Boolean);
+              for (const line of lines) {
+                try {
+                  const e = JSON.parse(line);
+                  const ts = Date.parse(e.timestamp || 0);
+                  if (ts < sessionStart) continue;
+                  const text = JSON.stringify(e).toLowerCase();
+                  for (const [wfId, obj] of escalatedWorkflows) {
+                    // Match by workflow id or first 30 chars of objective
+                    if (text.includes(wfId.toLowerCase()) ||
+                        text.includes((obj || '').toLowerCase().slice(0, 30))) {
+                      addressed.add(wfId);
+                    }
+                  }
+                } catch {}
+              }
+            }
+            const unaddressed = [...escalatedWorkflows.entries()].filter(([id]) => !addressed.has(id));
+            if (unaddressed.length > 0) {
+              const list = unaddressed.map(([, obj]) => `• ${(obj || '').slice(0, 80)}`).join('\n');
+              return block(
+                `${unaddressed.length} escalated inbox task(s) were surfaced at session start but not addressed:\n${list}\n\n` +
+                `REQUIRED before ending this turn: either (a) start the task (write a plan to workflow_state.json and begin), ` +
+                `or (b) explicitly defer it with a reason by logging a decisions.jsonl entry with ` +
+                `{"timestamp":"...","context":"inbox-escalated","workflowId":"...","chosen":"deferred","rationale":"<real reason>"}. ` +
+                `Ignoring escalated tasks is not allowed — address or formally defer each one.`
+              );
+            }
+          }
+        } catch {}
+      }
+    }
+
     // First gate: learning pass overdue. BUG FIXED 2026-06-30: this used to be
     // `if (corrections === 0) return done()` — an early return that short-circuited
     // EVERY gate below it (code-reviewer/release-engineer/test-engineer), not just this
