@@ -272,7 +272,7 @@ function injectCSOProtocol(sessionId) {
     // today's Stop-hook gate; dropping it from 14 of every 15 prompts would plausibly
     // make that worse, not better. Routing table detail is fine to drop (recoverable by
     // reading CLAUDE.md), this is not.
-    console.log('[CSO] protocol active (plan→execute→review→notify; personas: engineer/test-engineer/code-reviewer/orchestrator/ops/release-engineer) — /cso-learn MANDATORY before "CSO: Complete."');
+    console.log('[CSO] ⚠️  YOUR RESPONSE MUST START WITH "CSO:" — every answer, every question, every one-liner. No exceptions. Tasks: plan→execute→review→notify. /cso-learn MANDATORY before "CSO: Complete."');
   }
 
   // Inject workflow status + inbox once per session only — printing these on every

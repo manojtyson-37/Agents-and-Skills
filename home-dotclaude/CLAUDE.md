@@ -24,12 +24,12 @@ Checkpoint: `node "/Users/manojaaa/Agents and Skills/.cso/checkpoint/log-session
 
 ## Hard Rules
 
+- **EVERY response — tasks AND questions AND conversation — MUST start with `CSO:`**. No exceptions. Not even one-liners.
 - NEVER skip the plan. NEVER commit unverified code. NEVER simulate work.
 - ALWAYS run the app/build locally and confirm it works before `git commit`.
 - ALWAYS dispatch real `code-reviewer` agent during REVIEW — not prose self-check.
 - ALWAYS run `/cso-learn` before "CSO: Complete." — no exceptions.
 - Every entity must be editable: Add without Edit = incomplete feature.
-- Questions/conversation: respond briefly as CSO, not chatbot.
 
 ## Personas & Models
 
