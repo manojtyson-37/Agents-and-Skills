@@ -4,10 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const net = require('net');
+const { logHookEvent } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const ARCHIVE_DIR = path.join(STATE_DIR, 'archive');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
+const REGISTRY_FILE = path.join(STATE_DIR, 'workflows_registry.json');
 const DASHBOARD_SERVER = path.join(__dirname, '../../dashboard/server.js');
 const DAEMON_SCRIPT = path.join(__dirname, '../daemon/cso-daemon.js');
 
@@ -18,6 +20,8 @@ async function onSessionStart() {
       console.log('[CSO] State directory created');
     }
 
+    logHookEvent('on-session-start', 'session', 'fired', 'session-started');
+
     // Fix 3: Archive completed workflows
     await archiveCompletedWorkflow();
 
@@ -25,11 +29,15 @@ async function onSessionStart() {
     await ensureDashboardRunning();
     await ensureDaemonRunning();
 
-    // Resume in-progress workflow
+    // Surface multi-workflow registry if it exists
+    surfaceWorkflowRegistry();
+
+    // Resume in-progress workflow (backwards-compatible single-workflow path)
     if (fs.existsSync(WORKFLOW_STATE)) {
       const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
 
       if (state.status === 'in-progress' && state.inProgressTask) {
+        logHookEvent('on-session-start', 'workflow', 'fired', `workflow-resumed: ${(state.objective || '').substring(0, 80)}`);
         console.log(`[CSO] Resuming workflow: ${state.objective}`);
         console.log(`[CSO] In-progress: ${state.inProgressTask} (${state.elapsedTime})`);
         console.log(`[CSO] Next tasks: ${(state.queuedTasks || []).slice(0, 2).join(', ')}`);
@@ -95,6 +103,7 @@ async function archiveCompletedWorkflow() {
     // every subsequent session, confusing the model into trying to resume an old objective.
     const isGhostBootstrap = state.status === 'bootstrapping' && Object.keys(state.tasks || {}).length === 0;
     if (isGhostBootstrap) {
+      logHookEvent('on-session-start', 'workflow', 'fired', 'ghost-archived: bootstrapping workflow with 0 tasks');
       console.log('[CSO] Ghost bootstrapped workflow detected (no tasks ever added). Archiving...');
       state.status = 'abandoned';
       state.abandonedAt = new Date().toISOString();
@@ -143,6 +152,38 @@ async function archiveCompletedWorkflow() {
   }
 
   console.log('[CSO] State reset for new workflow.');
+}
+
+function surfaceWorkflowRegistry() {
+  if (!fs.existsSync(REGISTRY_FILE)) return;
+  try {
+    const registry = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'));
+    const activeIds = registry.active || [];
+    if (activeIds.length <= 1) return; // single workflow — normal path already handles it
+
+    console.log(`[CSO] Active workflows: ${activeIds.length}`);
+    for (const id of activeIds) {
+      const w = (registry.workflows || {})[id];
+      if (!w) continue;
+      // Try to get richer progress from per-workflow file
+      let progress = '';
+      let extra = '';
+      if (w.stateFile && fs.existsSync(w.stateFile)) {
+        try {
+          const ws = JSON.parse(fs.readFileSync(w.stateFile, 'utf-8'));
+          const done = (ws.completedTasks || []).length;
+          const total = Object.keys(ws.tasks || {}).length;
+          if (total > 0) progress = ` ${done}/${total} done`;
+          if (ws.status === 'blocked') extra = ' BLOCKED';
+          else if (ws.inProgressTask) extra = ` | next: ${ws.inProgressTask}`;
+        } catch {}
+      }
+      const label = (w.objective || id).substring(0, 70);
+      const status = w.status || 'unknown';
+      console.log(`[CSO]   → ${label} (${status}${progress}${extra})`);
+    }
+    console.log(`[CSO] To switch: node "${path.join(__dirname, '../decision/workflow-manager.cjs')}" switch <objectiveId>`);
+  } catch {}
 }
 
 function lastRealActivity() {

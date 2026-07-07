@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { logHookEvent } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
@@ -42,6 +43,7 @@ async function onUserPrompt() {
         const lp = prompt.toLowerCase();
         const isResumePhrase = /\b(cso\s*(go|start|activate|continue|resume|pick\s*up|proceed)|continue|resume|proceed|go\s+ahead|start\s+now|let'?s\s+go)\b/.test(lp);
         if (!isResumePhrase) {
+          logHookEvent('on-user-prompt', 'activation-gate', 'blocked', 'workflow in-progress, non-resume prompt intercepted');
           const completed = (state.completedTasks || []).length;
           const total = Object.keys(state.tasks || {}).length;
           const shortObj = (state.objective || '').substring(0, 100);
@@ -84,9 +86,11 @@ async function onUserPrompt() {
       return;
     }
 
-    // Guard: never create a workflow from system XML blobs (task-notification, task-result, etc.)
-    // These fire as user-prompt events but are internal plumbing, not user task requests.
-    if (/^<(task-notification|task-result|tool-result|system-reminder)\b/i.test(prompt.trimStart())) {
+    // Guard: skip known system XML blob types. Named-tag blocklist is intentional —
+    // a pure startsWith('<') would silently drop legitimate user messages starting
+    // with code snippets or HTML pastes (code-reviewer blocker, 2026-07-08).
+    if (/^<(task-notification|task-result|tool-result|system-reminder|system-prompt|agent-notification)\b/i.test(prompt.trimStart())) {
+      logHookEvent('on-user-prompt', 'xml-guard', 'skipped', 'prompt starts with known system XML tag');
       return;
     }
 
@@ -160,6 +164,8 @@ async function onUserPrompt() {
 
     // Save workflow state
     fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(workflow, null, 2));
+
+    logHookEvent('on-user-prompt', 'workflow-create', 'fired', `new workflow: ${objectiveId}`);
 
     // Log initialization
     logEvent('WORKFLOW_INITIALIZED', {

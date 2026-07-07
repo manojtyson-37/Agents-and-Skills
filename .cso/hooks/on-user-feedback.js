@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logHookEvent } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const DECISION_DIR = path.join(__dirname, '../decision');
@@ -122,6 +123,7 @@ async function onUserFeedback() {
 
     // Handle dissatisfaction
     if (sentiment.type === 'dissatisfied') {
+      logHookEvent('on-user-feedback', 'sentiment', 'fired', `rework-triggered: ${sentiment.issues.join(', ')}`);
       console.log('[CSO] 🔄 Auto-rework triggered');
       console.log(`[CSO] Issues detected: ${sentiment.issues.join(', ')}`);
 
@@ -131,6 +133,7 @@ async function onUserFeedback() {
 
     // Handle satisfaction
     if (sentiment.type === 'satisfied') {
+      logHookEvent('on-user-feedback', 'sentiment', 'fired', 'satisfaction-detected');
       console.log('[CSO] ✅ Satisfaction confirmed');
       logIteration(state, 'satisfied');
     }
@@ -275,6 +278,7 @@ function triggerRework(state, sentiment) {
   // Decision profile rule 14: cap autonomous churn, let user redirect.
   const REWORK_LIMIT = 5;
   if (task.reworkCount >= REWORK_LIMIT) {
+    logHookEvent('on-user-feedback', 'rework-limit', 'fired', `rework-limit-reached: task ${state.inProgressTask} at cycle ${task.reworkCount}`);
     console.log(`[CSO] ⚠️ STUCK WORKFLOW: task "${state.inProgressTask}" has ${task.reworkCount} rework cycles.`);
     console.log(`[CSO] Autonomous retry paused. Surface to user: describe what was tried and the specific blocker.`);
     console.log(`[CSO] Last rework reason: ${task.reworkReason}`);

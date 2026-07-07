@@ -33,6 +33,20 @@ const entry = {
 fs.appendFileSync(LEDGER, JSON.stringify(entry) + '\n');
 console.log('recorded:', entry.chosen, `(${entry.decidedBy}/${entry.confidence}${entry.override ? '/OVERRIDE' : ''})`);
 
+// Auto-distill every 10 decisions (non-blocking background spawn)
+try {
+  const lineCount = fs.readFileSync(LEDGER, 'utf-8').trim().split('\n').filter(Boolean).length;
+  if (lineCount > 0 && lineCount % 10 === 0) {
+    const { spawn } = require('child_process');
+    const distillScript = path.join(__dirname, 'distill-patterns.cjs');
+    const child = spawn(process.execPath, [distillScript], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  }
+} catch (_) {}
+
 // demo/self-check: node record-decision.js --selftest
 if (process.argv[2] === '--selftest') {
   const lines = fs.readFileSync(LEDGER, 'utf-8').trim().split('\n');

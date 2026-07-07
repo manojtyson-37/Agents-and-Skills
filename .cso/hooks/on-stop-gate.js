@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { checkMemoryUpdated } = require('./cso-utils');
+const { checkMemoryUpdated, logHookEvent } = require('./cso-utils');
 
 // STATE_DIR/logs are always this repo's (.cso/state is shared across all workspaces by
 // design). But git operations must use the ACTUAL session cwd, not this repo's path —
@@ -106,6 +106,7 @@ async function main() {
             const unaddressed = [...escalatedWorkflows.entries()].filter(([id]) => !addressed.has(id));
             if (unaddressed.length > 0) {
               const list = unaddressed.map(([id, obj]) => `• ${(obj || id).slice(0, 80)}`).join('\n');
+              logHookEvent('on-stop-gate', 'gate-0-inbox', 'blocked', `${unaddressed.length} escalated task(s) unaddressed`);
               return block(
                 `${unaddressed.length} escalated inbox task(s) were surfaced at session start but not addressed:\n${list}\n\n` +
                 `REQUIRED before ending this turn: either (a) start the task (write a plan to workflow_state.json and begin), ` +
@@ -119,6 +120,7 @@ async function main() {
         } catch {}
       }
     }
+    logHookEvent('on-stop-gate', 'gate-0-inbox', 'passed', '');
 
     // Self-repair gate: CSO-detected self-repair tasks must be addressed before session end.
     // Root cause this fixes: self-repair tasks were being bulk-cancelled with user inbox tasks,
@@ -155,6 +157,7 @@ async function main() {
             const unaddressed = selfRepairPending.filter(t => !addressed.has(t.id));
             if (unaddressed.length > 0) {
               const list = unaddressed.map(t => `• [${t.category || 'unknown'}] ${t.title || t.id}`).join('\n');
+              logHookEvent('on-stop-gate', 'gate-0b-self-repair', 'blocked', `${unaddressed.length} self-repair task(s) unaddressed`);
               return block(
                 `${unaddressed.length} self-repair task(s) from CSO's own gap-detection are pending and unaddressed:\n${list}\n\n` +
                 `These represent known CSO failures that must not be silently dropped. Either:\n` +
@@ -167,6 +170,7 @@ async function main() {
         } catch {}
       }
     }
+    logHookEvent('on-stop-gate', 'gate-0b-self-repair', 'passed', '');
 
     // First gate: learning pass — REQUIRED whenever workflow was active this session OR
     // corrections were logged. "Continuous learning agent" means cso-learn runs every session
@@ -187,12 +191,16 @@ async function main() {
         const trigger = corrections > 0
           ? `${corrections} correction(s) logged in feedback.jsonl`
           : `workflow was active this session`;
+        logHookEvent('on-stop-gate', 'gate-1-learning', 'blocked', trigger);
         return block(
           `${trigger} but no /cso-learn pass ran this session. CSO is a continuous learning agent — ` +
           `run /cso-learn now, write any new memory file(s), update MEMORY.md, then log a decisions.jsonl ` +
           `entry mentioning "cso-learn" before ending this turn.`
         );
       }
+      logHookEvent('on-stop-gate', 'gate-1-learning', 'passed', 'learn logged or memory updated');
+    } else {
+      logHookEvent('on-stop-gate', 'gate-1-learning', 'skipped', 'no corrections and no workflow activity');
     }
 
     // Second gate: a commit landed recently with no logged code-reviewer dispatch.
@@ -215,6 +223,7 @@ async function main() {
       if (!fullDispatched && !selfReviewOk) {
         const stats = lastCommitDiffStats();
         const sizeNote = stats ? ` (${stats.files} file(s), ${stats.totalLines} line(s) changed)` : '';
+        logHookEvent('on-stop-gate', 'gate-2-code-review', 'blocked', 'commit landed with no review');
         return block(
           `A git commit landed at ${new Date(recentCommitMs).toISOString()}${sizeNote} with no logged ` +
           `review. Either: (a) dispatch the code-reviewer agent and it'll be picked up via transcript, ` +
@@ -224,6 +233,9 @@ async function main() {
           `reasoning, what you checked>"} before ending this turn.`
         );
       }
+      logHookEvent('on-stop-gate', 'gate-2-code-review', 'passed', fullDispatched ? 'code-reviewer dispatched' : 'small non-infra self-review');
+    } else {
+      logHookEvent('on-stop-gate', 'gate-2-code-review', 'skipped', 'no qualifying commit');
     }
 
     // Third gate: a commit touches deploy config (the repo is being shipped) with no
@@ -231,11 +243,15 @@ async function main() {
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesDeployConfig()) {
       const releaseLogged = wasReallyDispatched('release-engineer', dispatchedPersonas, reviewWindowStart);
       if (!releaseLogged) {
+        logHookEvent('on-stop-gate', 'gate-3-deploy-config', 'blocked', 'deploy config commit with no release-engineer dispatch');
         return block(
           `A git commit at ${new Date(recentCommitMs).toISOString()} touches deploy config but no ` +
           `decisions.jsonl entry mentions release-engineer. Dispatch it and log before ending this turn.`
         );
       }
+      logHookEvent('on-stop-gate', 'gate-3-deploy-config', 'passed', 'release-engineer dispatched');
+    } else {
+      logHookEvent('on-stop-gate', 'gate-3-deploy-config', 'skipped', 'no deploy config commit');
     }
 
     // Fourth gate: a commit touches app source in a repo with a real test script, no
@@ -243,12 +259,16 @@ async function main() {
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesTestableCode()) {
       const testLogged = wasReallyDispatched('test-engineer', dispatchedPersonas, reviewWindowStart);
       if (!testLogged) {
+        logHookEvent('on-stop-gate', 'gate-4-test-engineer', 'blocked', 'testable code commit with no test-engineer pass');
         return block(
           `A git commit at ${new Date(recentCommitMs).toISOString()} touches testable app code in a repo ` +
           `with a real test script, but no decisions.jsonl entry is logged with persona:test-engineer. ` +
           `Run it (e.g. /verify) and log a decisions.jsonl entry with persona:"test-engineer" before ending this turn.`
         );
       }
+      logHookEvent('on-stop-gate', 'gate-4-test-engineer', 'passed', 'test-engineer dispatched');
+    } else {
+      logHookEvent('on-stop-gate', 'gate-4-test-engineer', 'skipped', 'no testable code commit');
     }
 
     // Fifth gate: a code commit landed but CSO state files were not updated this session.
@@ -274,6 +294,7 @@ async function main() {
         const wfUpdated = fs.existsSync(wfPath) && fs.statSync(wfPath).mtimeMs >= stateWindow;
         const thUpdated = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= stateWindow;
         if (!wfUpdated) {
+          logHookEvent('on-stop-gate', 'gate-5-state-files', 'blocked', 'workflow_state.json not updated after commit');
           return block(
             `A git commit landed at ${new Date(recentCommitMs).toISOString()} but workflow_state.json ` +
             `was not updated this session. Update it (set the task to completed, move inProgressTask) ` +
@@ -281,6 +302,7 @@ async function main() {
           );
         }
         if (!thUpdated) {
+          logHookEvent('on-stop-gate', 'gate-5-state-files', 'blocked', 'task_history.jsonl not updated after commit');
           return block(
             `A git commit landed at ${new Date(recentCommitMs).toISOString()} but task_history.jsonl ` +
             `has not been appended this session. Log the completed task ` +
@@ -288,7 +310,10 @@ async function main() {
             `before ending this turn. Path: ${thPath}`
           );
         }
+        logHookEvent('on-stop-gate', 'gate-5-state-files', 'passed', 'workflow_state and task_history updated');
       }
+    } else {
+      logHookEvent('on-stop-gate', 'gate-5-state-files', 'skipped', 'no qualifying commit');
     }
 
     // Fifth-B gate: workflow stuck in bootstrapping with 0 tasks at session end.
@@ -301,6 +326,7 @@ async function main() {
         const wf = JSON.parse(fs.readFileSync(wfPath, 'utf-8'));
         const isGhostBootstrap = wf.status === 'bootstrapping' && Object.keys(wf.tasks || {}).length === 0;
         if (isGhostBootstrap) {
+          logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'blocked', 'workflow stuck in bootstrapping with 0 tasks after commit');
           return block(
             `Workflow is still in "bootstrapping" state with 0 tasks, but real work (commit) happened ` +
             `this session. Either: (a) write the task plan to workflow_state.json ` +
@@ -309,7 +335,12 @@ async function main() {
             `Path: ${wfPath}`
           );
         }
-      } catch {}
+        logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'passed', 'workflow has tasks or is not bootstrapping');
+      } catch {
+        logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', 'workflow_state.json unreadable');
+      }
+    } else {
+      logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', 'no qualifying commit or no workflow file');
     }
 
     // Sixth gate: commit touches UI/app code but no local verify happened this session.
@@ -320,6 +351,7 @@ async function main() {
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesPreviewableCode()) {
       const localVerified = transcriptHasLocalVerify(input.transcript_path, sessionStart);
       if (!localVerified) {
+        logHookEvent('on-stop-gate', 'gate-6-local-verify', 'blocked', 'UI commit with no local preview screenshot');
         return block(
           `A commit at ${new Date(recentCommitMs).toISOString()} touches UI/app code but no local ` +
           `verification was found this session. REQUIRED: start the dev server (preview_start), ` +
@@ -327,6 +359,9 @@ async function main() {
           `committing. Run /verify or use preview_* tools, then end this turn.`
         );
       }
+      logHookEvent('on-stop-gate', 'gate-6-local-verify', 'passed', 'local preview screenshot found');
+    } else {
+      logHookEvent('on-stop-gate', 'gate-6-local-verify', 'skipped', 'no previewable code commit');
     }
 
     // Seventh gate: code was pushed to remote (HEAD == remote) but no Chrome MCP prod verify
@@ -339,6 +374,7 @@ async function main() {
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesDeployedAppCode() && isPushedToRemote()) {
       const prodVerified = transcriptHasProdVerify(input.transcript_path, recentCommitMs);
       if (!prodVerified) {
+        logHookEvent('on-stop-gate', 'gate-7-prod-verify', 'blocked', 'push detected but no prod screenshot found');
         return block(
           `A push is detected (local HEAD matches remote) for commit at ` +
           `${new Date(recentCommitMs).toISOString()} but no real prod verification was found. ` +
@@ -348,8 +384,12 @@ async function main() {
           `Show the screenshot before ending this turn.`
         );
       }
+      logHookEvent('on-stop-gate', 'gate-7-prod-verify', 'passed', 'prod screenshot verified');
+    } else {
+      logHookEvent('on-stop-gate', 'gate-7-prod-verify', 'skipped', 'no pushed deployed-app commit');
     }
 
+    logHookEvent('on-stop-gate', 'all-gates', 'passed', 'all gates cleared');
     return done();
   } catch (e) {
     return done(); // never crash the session over a hook bug

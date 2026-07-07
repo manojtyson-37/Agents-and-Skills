@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logHookEvent } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
@@ -45,9 +46,13 @@ async function onSessionEnd() {
     // Check if learning pass was done
     checkLearningPass();
 
+    // Auto-distill decision patterns if ledger was touched this session
+    spawnDistillIfNeeded();
+
     // Write an auto session checkpoint so the NEXT session has continuity
     writeSessionCheckpoint();
 
+    logHookEvent('on-session-end', 'session', 'fired', 'session-ended');
     console.log('[CSO] Session end. State persisted.');
   } catch (error) {
     console.error('[CSO] Session end error:', error.message);
@@ -175,6 +180,30 @@ function writeSessionCheckpoint() {
   }
 }
 
+function spawnDistillIfNeeded() {
+  try {
+    // Watch decision_patterns.jsonl (written by record-decision.cjs) — this is the
+    // correct trigger for distillation. decisions.jsonl is CSO's internal log (APPROVE/
+    // REWORK entries), not user decision patterns. record-decision.cjs already fires
+    // distill every 10 records; this is the session-end catch-all for any remainder.
+    const ledger = path.join(__dirname, '../decision/decision_patterns.jsonl');
+    if (!fs.existsSync(ledger)) return;
+    const mtime = fs.statSync(ledger).mtimeMs;
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    if (mtime < twoHoursAgo) return; // not touched this session (known 2h limitation)
+    const { spawn } = require('child_process');
+    const distillScript = path.join(__dirname, '../decision/distill-patterns.cjs');
+    const child = spawn(process.execPath, [distillScript], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    console.log('[CSO] Distill patterns spawned in background.');
+  } catch (e) {
+    console.error('[CSO] spawnDistillIfNeeded error:', e.message);
+  }
+}
+
 function checkLearningPass() {
   const feedbackLog = path.join(STATE_DIR, 'feedback.jsonl');
   const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
@@ -205,6 +234,7 @@ function checkLearningPass() {
   }
 
   if (corrections > 0 && learnings === 0) {
+    logHookEvent('on-session-end', 'learning', 'fired', `learning-missing: ${corrections} correction(s) with no learning entries`);
     console.log(`[CSO] ⚠️ SESSION ENDED WITHOUT LEARNING PASS: ${corrections} correction(s) detected but no learnings saved.`);
     // Auto-log the failure
     const entry = {
