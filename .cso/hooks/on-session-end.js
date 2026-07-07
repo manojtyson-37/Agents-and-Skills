@@ -180,14 +180,14 @@ function checkLearningPass() {
   const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
 
   // Count recent corrections
+  const twoHoursAgoMs = Date.now() - 2 * 60 * 60 * 1000;
   let corrections = 0;
   if (fs.existsSync(feedbackLog)) {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const lines = fs.readFileSync(feedbackLog, 'utf-8').trim().split('\n').filter(Boolean);
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
-        if (entry.type === 'dissatisfied' && entry.timestamp > twoHoursAgo) corrections++;
+        if (entry.type === 'dissatisfied' && Date.parse(entry.timestamp) > twoHoursAgoMs) corrections++;
       } catch {}
     }
   }
@@ -195,12 +195,11 @@ function checkLearningPass() {
   // Check if learning entries were logged
   let learnings = 0;
   if (fs.existsSync(decisionsLog)) {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const lines = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean);
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
-        if (entry.decision && entry.decision.startsWith('Learning:') && entry.timestamp > twoHoursAgo) learnings++;
+        if (entry.decision && entry.decision.startsWith('Learning:') && Date.parse(entry.timestamp) > twoHoursAgoMs) learnings++;
       } catch {}
     }
   }

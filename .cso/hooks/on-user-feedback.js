@@ -271,14 +271,22 @@ function triggerRework(state, sentiment) {
   task.reworkCount = (task.reworkCount || 0) + 1;
   task.lastReworkAt = new Date().toISOString();
 
-  // Route back
-  state.inProgressTask = state.inProgressTask; // Keep same task
+  // Stuck-workflow recovery: surface after 5 rework cycles instead of continuing blind.
+  // Decision profile rule 14: cap autonomous churn, let user redirect.
+  const REWORK_LIMIT = 5;
+  if (task.reworkCount >= REWORK_LIMIT) {
+    console.log(`[CSO] ⚠️ STUCK WORKFLOW: task "${state.inProgressTask}" has ${task.reworkCount} rework cycles.`);
+    console.log(`[CSO] Autonomous retry paused. Surface to user: describe what was tried and the specific blocker.`);
+    console.log(`[CSO] Last rework reason: ${task.reworkReason}`);
+  }
+
+  // Route back (keep inProgressTask unchanged)
   state.tasks[state.inProgressTask] = task;
 
   // Save state
   fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
 
-  console.log(`[CSO] → Rerouting to ${reworkOwner} for improvements`);
+  console.log(`[CSO] → Rerouting to ${reworkOwner} for improvements (cycle ${task.reworkCount}${task.reworkCount >= REWORK_LIMIT ? ' — LIMIT REACHED' : ''})`);
   console.log(`[CSO] Rework reason: ${sentiment.issues.join(', ')}`);
 
   // Log iteration

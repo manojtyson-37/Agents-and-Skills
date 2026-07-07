@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { checkMemoryUpdated } = require('./cso-utils');
 
 // STATE_DIR/logs are always this repo's (.cso/state is shared across all workspaces by
 // design). But git operations must use the ACTUAL session cwd, not this repo's path —
@@ -33,7 +34,13 @@ async function main() {
     // already blocked once this turn, don't block again.
     if (input.stop_hook_active) return done();
 
-    const sessionStart = Date.now() - 2 * 60 * 60 * 1000; // 2h lookback window
+    // Use session_start_ms when provided so all gates share the real session boundary.
+    // Without this, sessions >2h would use a stale 2h window for gates 1-7.
+    // Known limitation: if session_start_ms is absent (Claude Code version gap), the 2h
+    // fallback means early-session work may be missed for sessions longer than 2h.
+    const sessionStart = (input.session_start_ms && typeof input.session_start_ms === 'number')
+      ? input.session_start_ms
+      : Date.now() - 2 * 60 * 60 * 1000;
     const dispatchedPersonas = transcriptDispatchedPersonas(input.transcript_path, sessionStart);
 
     // Gate 0: ACTION REQUIRED inbox task must be addressed before ending session.
@@ -42,11 +49,9 @@ async function main() {
     // and responds as chatbot. This gate blocks Stop if there's an escalated inbox
     // task with no decisions.jsonl entry proving it was addressed (started, deferred
     // with reason, or completed) this session.
-    // Session window: use input.session_start_ms if provided, else fall back to sessionStart (2h).
-    // This avoids re-blocking tasks that were deferred at hour 1 of a 3h+ session.
+    // sessionStart already incorporates session_start_ms (set at top of main()).
     {
-      const gate0Start = (input.session_start_ms && typeof input.session_start_ms === 'number')
-        ? input.session_start_ms : sessionStart;
+      const gate0Start = sessionStart;
       const inboxPath = path.join(STATE_DIR, 'inbox.json');
       if (fs.existsSync(inboxPath)) {
         try {
@@ -600,17 +605,7 @@ function countRecent(file, sinceMs, predicate) {
   return n;
 }
 
-function checkMemoryUpdated(sinceMs) {
-  const cwd = process.cwd();
-  const projectKey = cwd.replace(/[\/ ]/g, '-');
-  const memoryDir = path.join(process.env.HOME || '/Users/manojaaa', '.claude/projects', projectKey, 'memory');
-  if (!fs.existsSync(memoryDir)) return false;
-  const files = fs.readdirSync(memoryDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
-  for (const f of files) {
-    if (fs.statSync(path.join(memoryDir, f)).mtimeMs >= sinceMs) return true;
-  }
-  return false;
-}
+// checkMemoryUpdated — imported from cso-utils.js
 
 // Returns true if local HEAD matches the upstream remote branch (i.e., a push happened).
 // False if ahead (not yet pushed), no remote, or git error (safe: no false gate).

@@ -74,7 +74,13 @@ function incrementSessionCount() {
 async function archiveCompletedWorkflow() {
   if (!fs.existsSync(WORKFLOW_STATE)) return;
 
-  const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+  let state;
+  try {
+    state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
+  } catch {
+    console.log('[CSO] workflow_state.json unreadable (corrupt?). Skipping archive check.');
+    return;
+  }
 
   // Archive if completed OR stale (no real activity in 24h and stuck in-progress).
   // lastSavedAt is NOT used for this clock: on-session-end.js bumps it every single

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { checkMemoryUpdated } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const FEEDBACK_LOG = path.join(STATE_DIR, 'feedback.jsonl');
@@ -22,7 +23,7 @@ async function onLearnCheck() {
     const recentCorrections = getRecentCorrections();
 
     // Check if memory was updated recently (any .md file in project memory modified in last 2 hours)
-    const memoryUpdated = checkMemoryUpdated();
+    const memoryUpdated = checkMemoryUpdated(Date.now() - 2 * 60 * 60 * 1000);
 
     if (recentCorrections > 0 && !memoryUpdated) {
       console.log(`[CSO] ⚠️ LEARNING PASS OVERDUE: ${recentCorrections} correction(s) detected in this session but NO memory files updated.`);
@@ -40,14 +41,14 @@ async function onLearnCheck() {
 function getRecentCorrections() {
   if (!fs.existsSync(FEEDBACK_LOG)) return 0;
 
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const twoHoursAgoMs = Date.now() - 2 * 60 * 60 * 1000;
   const lines = fs.readFileSync(FEEDBACK_LOG, 'utf-8').trim().split('\n').filter(Boolean);
 
   let count = 0;
   for (const line of lines) {
     try {
       const entry = JSON.parse(line);
-      if (entry.type === 'dissatisfied' && entry.timestamp > twoHoursAgo) {
+      if (entry.type === 'dissatisfied' && Date.parse(entry.timestamp) > twoHoursAgoMs) {
         count++;
       }
     } catch {}
@@ -55,29 +56,7 @@ function getRecentCorrections() {
   return count;
 }
 
-function checkMemoryUpdated() {
-  // Check all possible project memory directories
-  const cwd = process.cwd();
-  const projectKey = cwd.replace(/[\/ ]/g, '-');
-  const memoryDir = path.join(
-    process.env.HOME || '/Users/manojaaa',
-    '.claude/projects',
-    projectKey,
-    'memory'
-  );
-
-  if (!fs.existsSync(memoryDir)) return false;
-
-  const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-  const files = fs.readdirSync(memoryDir).filter(f => f.endsWith('.md') && f !== 'MEMORY.md');
-
-  for (const file of files) {
-    const stat = fs.statSync(path.join(memoryDir, file));
-    if (stat.mtimeMs > twoHoursAgo) return true;
-  }
-
-  return false;
-}
+// checkMemoryUpdated — imported from cso-utils.js
 
 function extractSessionId(raw) {
   try { return JSON.parse(raw).session_id || null; } catch { return null; }

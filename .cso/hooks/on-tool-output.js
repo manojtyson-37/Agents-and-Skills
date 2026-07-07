@@ -134,11 +134,15 @@ function accumulateTokenMetrics(outputTokens) {
     } catch {}
   }
 
-  // Count decisions
+  // Count decisions — scan tail of decisions.jsonl only (cap at 500 lines).
+  // decisions.jsonl is written directly by CSO, not via record-decision.cjs (which
+  // writes to decision_patterns.jsonl). Incremental counter approach is not viable
+  // without a single authoritative writer, so we scan the tail on each call.
+  metrics.decisions = { approved: 0, rework: 0, escalated: 0 };
   if (fs.existsSync(DECISIONS_LOG)) {
     try {
-      const lines = fs.readFileSync(DECISIONS_LOG, 'utf-8').split('\n').filter(l => l.trim());
-      metrics.decisions = { approved: 0, rework: 0, escalated: 0 };
+      const allLines = fs.readFileSync(DECISIONS_LOG, 'utf-8').split('\n').filter(l => l.trim());
+      const lines = allLines.length > 500 ? allLines.slice(-500) : allLines;
       lines.forEach(line => {
         try {
           const d = JSON.parse(line);

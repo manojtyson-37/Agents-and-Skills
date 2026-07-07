@@ -84,6 +84,12 @@ async function onUserPrompt() {
       return;
     }
 
+    // Guard: never create a workflow from system XML blobs (task-notification, task-result, etc.)
+    // These fire as user-prompt events but are internal plumbing, not user task requests.
+    if (/^<(task-notification|task-result|tool-result|system-reminder)\b/i.test(prompt.trimStart())) {
+      return;
+    }
+
     // Check if workflow already exists and is active
     if (fs.existsSync(WORKFLOW_STATE)) {
       const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));

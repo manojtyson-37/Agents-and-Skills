@@ -72,7 +72,7 @@ function countRecent(file, sinceMs, predicate) {
   for (const line of lines) {
     try {
       const e = JSON.parse(line);
-      const ts = Date.parse(e.timestamp || 0);
+      const ts = Date.parse(e.timestamp) || 0;
       if (ts >= sinceMs && predicate(e)) n++;
     } catch {}
   }
