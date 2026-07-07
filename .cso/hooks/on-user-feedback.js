@@ -9,28 +9,34 @@ const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
 const FEEDBACK_LOG = path.join(STATE_DIR, 'feedback.jsonl');
 const PATTERN_LOG = path.join(DECISION_DIR, 'decision_patterns.jsonl');
 
+// Patterns tuned to reduce false positives from system messages and normal conversation.
+// Word-boundary anchors prevent partial-word matches ("bad" not "badge", "broken" not "unbroken").
+// Removed: /bad/i (too broad), /can't/i (matches "can't wait!"), /issue/i (matches "no issue"),
+// /problem/i (matches "no problem!"), /wrong/i standalone (too broad without context).
+// These were causing <task-notification> XML blobs to be classified as user dissatisfaction.
 const DISSATISFACTION_PATTERNS = [
-  /not happy/i,
-  /not satisfied/i,
-  /not good/i,
-  /bad/i,
-  /terrible/i,
-  /awful/i,
-  /hate/i,
-  /wrong/i,
-  /broken/i,
-  /useless/i,
-  /disappointing/i,
-  /disappointed/i,
-  /issue/i,
-  /problem/i,
-  /failed/i,
+  /\bnot happy\b/i,
+  /\bnot satisfied\b/i,
+  /not good enough/i,
+  /\bterrible\b/i,
+  /\bawful\b/i,
+  /\bhate\b/i,
+  /\bbroken\b/i,
+  /\buseless\b/i,
+  /\bdisappoint(ing|ed)\b/i,
+  /\bfailed\b/i,
   /doesn't work/i,
   /won't work/i,
-  /can't/i,
-  /should have/i,
+  /not working/i,
+  /\bwrong (output|result|answer|behavior|behaviour)\b/i,
+  /should have (done|fixed|checked|caught|handled)/i,
   /could be better/i,
-  /needs work/i
+  /needs? (more )?work/i,
+  /\bnot what I (asked|wanted|expected|meant)\b/i,
+  /\bstill (broken|wrong|failing|not working)\b/i,
+  /you (missed|ignored|forgot|skipped)/i,
+  /team is not happy/i,
+  /\bthat'?s wrong\b/i,
 ];
 
 const SATISFACTION_PATTERNS = [
@@ -84,6 +90,21 @@ async function onUserFeedback() {
     }
 
     if (!input || input.length < 10) return;
+
+    // Skip tool results and system XML — these are NOT user feedback.
+    // <task-notification> blobs were being classified as "dissatisfied" because
+    // they contain words like "failed", "error", "issue" in task output text.
+    // Guard: any input that is primarily an XML/tag structure is not a user message.
+    // Skip system-generated XML blobs — these are tool results, not user feedback.
+    // Narrowed to system-specific tag names only; bare "notification" removed (too wide — a
+    // user can legitimately write "<notification from Slack>: site is broken").
+    if (/^<(task-notification|task-result|tool-result)\b/i.test(input.trim())) return;
+    // Also skip if the message is dominated by XML tags (>40% tag chars vs full input length).
+    // Use input.length as denominator, not sample.length — a short message with one HTML tag
+    // would read as 90%+ density against a 200-char cap, causing false skips.
+    const sample = input.substring(0, 200);
+    const tagChars = (sample.match(/<[^>]+>/g) || []).join('').length;
+    if (tagChars / input.length > 0.4) return;
 
     // Check workflow exists
     if (!fs.existsSync(WORKFLOW_STATE)) return;
