@@ -21,6 +21,7 @@ const DECISIONS_LOG = path.join(STATE_DIR, 'decisions.jsonl');
 const REPO_ROOT = process.cwd();
 const SMALL_CHANGE_MAX_LINES = 15;
 const SMALL_CHANGE_MAX_FILES = 1;
+const MAX_SCAN_LINES = 4000;
 
 async function main() {
   try {
@@ -85,11 +86,13 @@ async function main() {
                       addressed.add(wfId);
                       continue;
                     }
-                    // Fallback: objective substring only when objective is long enough to be unambiguous
+                    // Fallback: objective substring only when long enough to be unambiguous,
+                    // scoped to known fields — avoids matching inside unrelated rationale text.
                     if (obj && obj.length >= 40) {
                       const needle = obj.toLowerCase().slice(0, 50);
-                      const hay = JSON.stringify(e).toLowerCase();
-                      if (hay.includes(needle)) addressed.add(wfId);
+                      const hayFields = [e.workflowObjective, e.objective, e.context, e.rationale, e.decision]
+                        .filter(Boolean).join(' ').toLowerCase();
+                      if (hayFields.includes(needle)) addressed.add(wfId);
                     }
                   }
                 } catch {}
@@ -425,7 +428,7 @@ function transcriptHasLocalVerify(transcriptPath, sinceMs) {
     for (const line of lines) {
       try {
         const e = JSON.parse(line);
-        const ts = Date.parse(e.timestamp || 0);
+        const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
         if (Number.isNaN(ts) || ts < sinceMs) continue;
         const content = e.message && e.message.content;
         if (!Array.isArray(content)) continue;
@@ -465,7 +468,6 @@ function transcriptHasLocalVerify(transcriptPath, sinceMs) {
 //   with subagent_type:"code-reviewer" and a vacuous prompt still satisfies this check.
 //   That's a real residual gap, accepted as a large improvement over hand-writable JSON
 //   text, not a closure of "agent must do real work."
-const MAX_SCAN_LINES = 4000;
 function transcriptDispatchedPersonas(transcriptPath, sinceMs) {
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return null;
   const found = new Set();
@@ -475,7 +477,7 @@ function transcriptDispatchedPersonas(transcriptPath, sinceMs) {
     for (const line of lines) {
       try {
         const e = JSON.parse(line);
-        const ts = Date.parse(e.timestamp || 0);
+        const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
         if (Number.isNaN(ts) || ts < sinceMs) continue;
         const content = e.message && e.message.content;
         if (!Array.isArray(content)) continue;
@@ -573,7 +575,7 @@ function transcriptHasProdVerify(transcriptPath, sinceMs) {
     for (const line of lines) {
       try {
         const e = JSON.parse(line);
-        const ts = Date.parse(e.timestamp || 0);
+        const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
         if (Number.isNaN(ts) || ts < sinceMs) continue;
         const content = e.message && e.message.content;
         if (!Array.isArray(content)) continue;
