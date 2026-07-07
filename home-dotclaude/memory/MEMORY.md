@@ -42,4 +42,11 @@
 - [CSO autonomy preferences](feedback_cso_autonomy_preferences.md) — Scope→pick default; deploys→auto after staging; tech→best solution; quality→full TDD; errors→3 tries then surface
 - [CSO self-repair design](feedback_cso_self_repair_design.md) — cso-learn feeds self-repair loop; user expects CSO to queue fixes for its own gaps without being asked
 
+- [Session objective enforcement](feedback_session_objective_enforcement.md) — Advisory session-start output ignored; only Stop gate blocking works for "must act this session" requirements
+- [Gate implementation quality](feedback_gate_implementation_quality.md) — Hook code always needs full code-reviewer dispatch; NaN/substring bugs found every time self-review was skipped
+
+- [CSO skill routing confusion](feedback_cso_skill_routing_confusion.md) — /cso = security audit skill; CSO orchestrator = CLAUDE.md protocol; never invoke skill to "start CSO"; prose memory alone doesn't prevent — hook enforcement needed
+- [Self-repair task protection](feedback_self_repair_task_protection.md) — self-repair tasks (source:"self-repair") must NOT be cancelled with bulk-cancel; they are infrastructure fixes, not user tasks
+- [CSO continuous learning](feedback_cso_continuous_learning.md) — user directive: cso-learn every session end, profile updated on every correction, self-repair tasks must execute not just queue
+
 **See individual memory files (feedback_*.md, project_*.md, reference_*.md) for full context, rationale, and examples.**

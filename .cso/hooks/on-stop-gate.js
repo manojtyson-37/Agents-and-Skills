@@ -115,27 +115,77 @@ async function main() {
       }
     }
 
-    // First gate: learning pass overdue. BUG FIXED 2026-06-30: this used to be
-    // `if (corrections === 0) return done()` — an early return that short-circuited
-    // EVERY gate below it (code-reviewer/release-engineer/test-engineer), not just this
-    // one. In any session with no recent "dissatisfied" feedback entry, none of today's
-    // enforcement ever ran, full stop — only caught because this session's own feedback
-    // log always had a recent entry during testing, masking it. Each gate must be
-    // independently reachable; only `block()` should ever short-circuit (it exits the
-    // process directly), never a bare `return done()` partway through.
+    // Self-repair gate: CSO-detected self-repair tasks must be addressed before session end.
+    // Root cause this fixes: self-repair tasks were being bulk-cancelled with user inbox tasks,
+    // meaning CSO detected its own failures but never fixed them. Self-repair tasks have
+    // source:"self-repair" in inbox.json. They must be executed or formally deferred this session.
+    {
+      const inboxPath = path.join(STATE_DIR, 'inbox.json');
+      if (fs.existsSync(inboxPath)) {
+        try {
+          const inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+          const selfRepairPending = (inbox.tasks || []).filter(
+            t => t.status === 'pending' && t.source === 'self-repair' && t.id
+          );
+          if (selfRepairPending.length > 0) {
+            // Check if addressed this session via decisions.jsonl
+            const addressed = new Set();
+            if (fs.existsSync(DECISIONS_LOG)) {
+              const allLines = fs.readFileSync(DECISIONS_LOG, 'utf-8').trim().split('\n').filter(Boolean);
+              const lines = allLines.length > MAX_SCAN_LINES ? allLines.slice(-MAX_SCAN_LINES) : allLines;
+              for (const line of lines) {
+                try {
+                  const e = JSON.parse(line);
+                  const ts = e.timestamp ? Date.parse(e.timestamp) : 0;
+                  if (isNaN(ts) || ts < sessionStart) continue;
+                  // Mark addressed if decisions.jsonl has an entry referencing this task id
+                  for (const t of selfRepairPending) {
+                    if (e.selfRepairId === t.id || (e.decision && e.decision.includes(t.id))) {
+                      addressed.add(t.id);
+                    }
+                  }
+                } catch {}
+              }
+            }
+            const unaddressed = selfRepairPending.filter(t => !addressed.has(t.id));
+            if (unaddressed.length > 0) {
+              const list = unaddressed.map(t => `• [${t.category || 'unknown'}] ${t.title || t.id}`).join('\n');
+              return block(
+                `${unaddressed.length} self-repair task(s) from CSO's own gap-detection are pending and unaddressed:\n${list}\n\n` +
+                `These represent known CSO failures that must not be silently dropped. Either:\n` +
+                `(a) Execute the fix now, or\n` +
+                `(b) Log a decisions.jsonl entry with {"selfRepairId":"<id>","decision":"deferred","rationale":"<real reason>","timestamp":"..."}\n` +
+                `Task IDs: ${unaddressed.map(t => t.id).join(', ')}`
+              );
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // First gate: learning pass — REQUIRED whenever workflow was active this session OR
+    // corrections were logged. "Continuous learning agent" means cso-learn runs every session
+    // that touched real work, not just sessions with dissatisfied feedback.
+    // BUG FIXED 2026-06-30: this used to short-circuit all gates below it — fixed then.
+    // 2026-07-08: strengthened: fire when workflow was touched OR corrections > 0.
     const corrections = countRecent(FEEDBACK_LOG, sessionStart, e => e.type === 'dissatisfied');
-    if (corrections > 0) {
+    const wfPathForLearn = path.join(STATE_DIR, 'workflow_state.json');
+    const workflowActivethisSession = fs.existsSync(wfPathForLearn) &&
+      fs.statSync(wfPathForLearn).mtimeMs >= sessionStart;
+    if (corrections > 0 || workflowActivethisSession) {
       const memoryUpdated = checkMemoryUpdated(sessionStart);
       const learnLogged = countRecent(DECISIONS_LOG, sessionStart, e =>
         JSON.stringify(e).toLowerCase().includes('cso-learn')
       ) > 0;
 
       if (!memoryUpdated && !learnLogged) {
+        const trigger = corrections > 0
+          ? `${corrections} correction(s) logged in feedback.jsonl`
+          : `workflow was active this session`;
         return block(
-          `${corrections} correction(s) logged in feedback.jsonl this session but no memory file was ` +
-          `written and no decisions.jsonl entry shows /cso-learn ran. Run /cso-learn now, write the ` +
-          `memory file(s), update MEMORY.md, then log a decisions.jsonl entry mentioning cso-learn ` +
-          `before ending this turn.`
+          `${trigger} but no /cso-learn pass ran this session. CSO is a continuous learning agent — ` +
+          `run /cso-learn now, write any new memory file(s), update MEMORY.md, then log a decisions.jsonl ` +
+          `entry mentioning "cso-learn" before ending this turn.`
         );
       }
     }

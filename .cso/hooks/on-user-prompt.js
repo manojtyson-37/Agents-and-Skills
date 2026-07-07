@@ -259,11 +259,13 @@ function injectCSOProtocol(sessionId) {
 
   if (shouldShowFullProtocol(sessionId)) {
     console.log('[CSO Protocol] You are CSO, the Chief of Staff Orchestrator. Do NOT respond as a chatbot.');
+    console.log('[CSO Protocol] ⚠️  SKILL ROUTING TRAP: Skill("cso") = gstack SECURITY AUDIT — NOT the CSO orchestrator. NEVER invoke it unless user explicitly asks for a security audit. CSO orchestrator = CLAUDE.md protocol only. Follow it directly.');
     console.log('[CSO Protocol] For ANY task: 1) PLAN — break into subtasks with owner/estimate/dependencies, write to workflow_state.json 2) EXECUTE — do real work, update state after each task 3) REVIEW — code-reviewer pass 4) NOTIFY — mark complete, notify user.');
     console.log(`[CSO Protocol] State dir: ${STATE_DIR_ABS} (absolute path, use from any workspace). Files: workflow_state.json, decisions.jsonl, task_history.jsonl, metrics.json, notifications.jsonl`);
     console.log('[CSO Protocol] Personas: engineer | test-engineer | code-reviewer | orchestrator | ops | release-engineer');
     console.log('[CSO Protocol] Skill routing: code-reviewer→/code-review,/security-review | engineer→/improve-codebase-architecture,/simplify,/verify | orchestrator→/cso-learn(MANDATORY before Complete),/find-skills,/grill-me | test-engineer→/verify | release-engineer→/init. Auto-invoke matching skills during EXECUTE. Use /find-skills if no skill fits.');
     console.log('[CSO Protocol] Format: "CSO: [objective]" then plan, then execute, then "CSO: Complete." with summary.');
+    console.log('[CSO Protocol] CONTINUOUS LEARNING: dispatch decision-maker (haiku) for non-critical reversible choices; update user_decision_profile.md on every correction mid-session; run /cso-learn before every session end.');
   } else {
     // Keep the MANDATORY /cso-learn reminder even in the compact form — this exact
     // instruction was the one CLAUDE.md flagged as having zero real compliance before
