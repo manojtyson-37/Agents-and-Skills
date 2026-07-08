@@ -389,6 +389,23 @@ async function main() {
       logHookEvent('on-stop-gate', 'gate-7-prod-verify', 'skipped', 'no pushed deployed-app commit');
     }
 
+    // Eighth gate: every assistant response this turn must start with "CSO:" (Hard Rule in
+    // CLAUDE.md). Prose-only enforcement was tried and ignored under task pressure (user
+    // caught two responses missing the prefix in one session, 2026-07-08) — this makes it
+    // a hard block instead of a reminder the model can skip.
+    {
+      const lastText = transcriptLastAssistantText(input.transcript_path, sessionStart);
+      if (lastText !== null && !/^\s*CSO:/.test(lastText)) {
+        logHookEvent('on-stop-gate', 'gate-8-cso-prefix', 'blocked', 'last response missing CSO: prefix');
+        return block(
+          `Your last response did not start with "CSO:" — this is a Hard Rule (CLAUDE.md), no exceptions, ` +
+          `not even one-liners. Re-send the response prefixed with "CSO: " before ending this turn.`
+        );
+      }
+      logHookEvent('on-stop-gate', 'gate-8-cso-prefix', lastText === null ? 'skipped' : 'passed',
+        lastText === null ? 'no assistant text found' : 'CSO: prefix present');
+    }
+
     logHookEvent('on-stop-gate', 'all-gates', 'passed', 'all gates cleared');
     return done();
   } catch (e) {
@@ -700,6 +717,41 @@ function transcriptHasProdVerify(transcriptPath, sinceMs) {
     return hasNavigate && hasScreenshot;
   } catch {
     return false; // unreadable transcript → don't block
+  }
+}
+
+// Returns the leading text block of the most recent qualifying assistant message in the
+// transcript (since sinceMs), or null if unreadable/no assistant text this turn. Uses the
+// FIRST text block of each message (not the last) because the CSO: rule is about how the
+// response starts — a message shaped [text "CSO: …", tool_use, text "…"] must be judged on
+// its opening block, not its trailing one. Skips tool_use-only messages (no user-facing text).
+function transcriptLastAssistantText(transcriptPath, sinceMs) {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) return null;
+  try {
+    const all = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
+    const lines = all.length > MAX_SCAN_LINES ? all.slice(-MAX_SCAN_LINES) : all;
+    let lastText = null;
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        if (e.type !== 'assistant' || e.isSidechain) continue;
+        // Missing/unparseable timestamp: don't exclude on that basis. A false negative here
+        // (silently skipping the gate) defeats the gate entirely; a false positive (checking
+        // a message that was technically pre-window) is harmless. Only exclude when we can
+        // positively confirm the message predates this session turn.
+        const ts = e.timestamp ? Date.parse(e.timestamp) : NaN;
+        if (!Number.isNaN(ts) && ts < sinceMs) continue;
+        const content = e.message && e.message.content;
+        if (!Array.isArray(content)) continue;
+        const firstText = content.find(
+          (c) => c && c.type === 'text' && typeof c.text === 'string' && c.text.trim()
+        );
+        if (firstText) lastText = firstText.text;
+      } catch {}
+    }
+    return lastText;
+  } catch {
+    return null; // unreadable transcript → don't block
   }
 }
 

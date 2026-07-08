@@ -45,7 +45,9 @@
       "Bash(git push *)",
       "Bash(gh pr *)",
       "Bash(gh auth *)",
-      "Bash(claude mcp *)"
+      "Bash(claude mcp *)",
+      "Bash(grep -E \"\\\\.\\(js|cjs|sh\\)$\")",
+      "Bash(gh search *)"
     ]
   }
 }

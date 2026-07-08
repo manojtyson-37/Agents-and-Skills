@@ -4,7 +4,7 @@ CSO's learned model of how the user (manojaaa) makes decisions. The decision-mak
 agent reads this before deciding on the user's behalf. Update it when new patterns
 emerge or when the user overrides a call. **Behavioral rules only — no secrets.**
 
-Last updated: 2026-07-03 · patterns observed: 13
+Last updated: 2026-07-08 · patterns observed: 15
 
 ## Observed tendencies (high confidence)
 
@@ -71,6 +71,14 @@ Last updated: 2026-07-03 · patterns observed: 13
     push-and-deploy task reached 12 rework cycles and 3.7M tokens before being
     flagged manually. This rule caps autonomous churn at 5 cycles.
 
+15. **Self-audit consistency fixes → CSO decides autonomously, no ask.** When CSO's own
+    audit finds a small, reversible, non-prod, non-secret inconsistency (broken/misplaced
+    symlink, stray file, naming drift) and recommends a fix, user wants CSO to just do it —
+    don't surface as a question next time, act and report. Evidence: ui-ux-reviewer.md
+    symlink pointed at wrong source dir; user said "go ahead" then explicitly told CSO to
+    have decision-maker own this class of call going forward. Extends rule 7 to explicitly
+    cover CSO's own infra/file hygiene, not just tooling/enforcement additions.
+
 ## Confidence thresholds
 - DECIDE when: a rule above clearly applies AND action is reversible/low-stakes.
 - ABSTAIN when: no matching rule, conflicting precedents, or HARD ABSTAIN class
@@ -80,3 +88,6 @@ Last updated: 2026-07-03 · patterns observed: 13
 - Tolerance for cost/spend trade-offs (some signal: approved opus for code-reviewer
   without asking about cost, suggesting cost is not a blocker for quality gates).
 - Preference on breadth vs. depth when time-boxed.
+
+## Candidate rules (auto-distilled)
+- [unknown — no active workflow]: approve (seen 3 times, high-confidence: 100%)
