@@ -5,42 +5,71 @@ const path = require('path');
 const { logHookEvent } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
-const WORKFLOW_STATE = path.join(STATE_DIR, 'workflow_state.json');
+const WORKFLOWS_DIR = path.join(STATE_DIR, 'workflows');
 const METRICS_FILE = path.join(STATE_DIR, 'metrics.json');
+
+// Returns the most recently active workflow from workflows/ dir, or null.
+function getActiveWorkflow() {
+  if (!fs.existsSync(WORKFLOWS_DIR)) return null;
+  const files = fs.readdirSync(WORKFLOWS_DIR).filter(f => f.endsWith('.json'));
+  let best = null, bestMtime = 0;
+  for (const f of files) {
+    const fp = path.join(WORKFLOWS_DIR, f);
+    try {
+      const s = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+      const mtime = fs.statSync(fp).mtimeMs;
+      if (s.status === 'in-progress' || s.status === 'active') {
+        if (mtime > bestMtime) { best = s; bestMtime = mtime; }
+      }
+    } catch {}
+  }
+  // Fallback: most recently modified workflow of any status
+  if (!best) {
+    for (const f of files) {
+      const fp = path.join(WORKFLOWS_DIR, f);
+      try {
+        const mtime = fs.statSync(fp).mtimeMs;
+        if (mtime > bestMtime) { best = JSON.parse(fs.readFileSync(fp, 'utf-8')); bestMtime = mtime; }
+      } catch {}
+    }
+  }
+  return best;
+}
 
 async function onSessionEnd() {
   try {
-    // Ensure state directory exists
     if (!fs.existsSync(STATE_DIR)) {
       fs.mkdirSync(STATE_DIR, { recursive: true });
     }
 
-    // Save current workflow state
-    if (fs.existsSync(WORKFLOW_STATE)) {
-      const state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-
-      // Update end time
-      state.lastSavedAt = new Date().toISOString();
-
-      // Write back
-      fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(state, null, 2));
-      console.log('[CSO] Workflow state saved');
-
-      // Auto-save incomplete tasks to inbox
-      if (state.status === 'in-progress') {
-        saveIncompleteToInbox(state);
+    // Save all in-progress workflows (touch lastSavedAt)
+    if (fs.existsSync(WORKFLOWS_DIR)) {
+      const files = fs.readdirSync(WORKFLOWS_DIR).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        const fp = path.join(WORKFLOWS_DIR, f);
+        try {
+          const s = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+          if (s.status === 'in-progress' || s.status === 'active') {
+            s.lastSavedAt = new Date().toISOString();
+            fs.writeFileSync(fp, JSON.stringify(s, null, 2));
+            console.log('[CSO] Workflow state saved:', s.name || f);
+            saveIncompleteToInbox(s);
+          }
+        } catch {}
       }
+    }
 
-      // Log metrics
-      if (fs.existsSync(METRICS_FILE)) {
+    // Log metrics
+    if (fs.existsSync(METRICS_FILE)) {
+      try {
         const metrics = JSON.parse(fs.readFileSync(METRICS_FILE, 'utf-8'));
-        console.log(`[CSO] Session metrics:`);
+        console.log('[CSO] Session metrics:');
         console.log(`  Tasks: ${metrics.tasksCompleted}/${metrics.totalTasksPlanned} complete`);
         const usage = metrics.tokenUsage || {};
         if (usage.totalTokens) {
           console.log(`  Tokens: ${usage.totalTokens} total, ${usage.toolCalls} tool calls`);
         }
-      }
+      } catch {}
     }
 
     // Check if learning pass was done
@@ -48,6 +77,9 @@ async function onSessionEnd() {
 
     // Auto-distill decision patterns if ledger was touched this session
     spawnDistillIfNeeded();
+
+    // Refresh context.md snapshot (reduces token load on next session start)
+    writeContextMd();
 
     // Write an auto session checkpoint so the NEXT session has continuity
     writeSessionCheckpoint();
@@ -67,9 +99,9 @@ function saveIncompleteToInbox(state) {
     try { inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8')); } catch {}
   }
 
-  const incompleteTasks = Object.values(state.tasks || {}).filter(
-    t => t.status !== 'completed'
-  );
+  const tasksRaw = state.tasks || {};
+  const taskArr = Array.isArray(tasksRaw) ? tasksRaw : Object.values(tasksRaw);
+  const incompleteTasks = taskArr.filter(t => t.status !== 'completed');
 
   if (incompleteTasks.length === 0) return;
 
@@ -123,15 +155,13 @@ function writeSessionCheckpoint() {
       }
     }
 
-    // Skip idle/empty sessions: don't spam "(idle)" checkpoints that bury meaningful ones.
-    // Only checkpoint if there's an active workflow OR a new decision since the last checkpoint.
-    let activeWorkflow = false;
-    if (fs.existsSync(WORKFLOW_STATE)) {
-      const s0 = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-      const obj = (s0.objective || '').toLowerCase();
-      activeWorkflow = (s0.status === 'in-progress' || s0.status === 'active') &&
-                       obj && obj !== '(idle)' && obj !== '(none)';
-    }
+    // Skip idle/empty sessions: don't spam checkpoints that bury meaningful ones.
+    const activeWf = getActiveWorkflow();
+    const obj0 = (activeWf?.objective || activeWf?.name || '').toLowerCase();
+    const activeWorkflow = activeWf &&
+      (activeWf.status === 'in-progress' || activeWf.status === 'active') &&
+      obj0 && obj0 !== '(idle)' && obj0 !== '(none)';
+
     let newDecisionSince = false;
     if (fs.existsSync(decisionsLog)) {
       const dl = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean);
@@ -143,13 +173,17 @@ function writeSessionCheckpoint() {
     }
 
     let objective = '(none)', status = 'idle', completed = 0, total = 0, open = [];
-    if (fs.existsSync(WORKFLOW_STATE)) {
-      const s = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-      objective = s.objective || objective;
+    if (activeWf) {
+      const s = activeWf;
+      objective = s.objective || s.name || objective;
       status = s.status || status;
-      completed = (s.completedTasks || []).length;
-      total = Object.keys(s.tasks || {}).length;
-      open = Object.entries(s.tasks || {}).filter(([, t]) => t.status !== 'completed').map(([k]) => k);
+      const tasks = s.tasks || {};
+      const taskEntries2 = Array.isArray(tasks)
+        ? tasks.map(t => [t.title || t.id || '?', t])
+        : Object.entries(tasks);
+      completed = taskEntries2.filter(([, t]) => t.status === 'completed').length;
+      total = taskEntries2.length;
+      open = taskEntries2.filter(([, t]) => t.status !== 'completed').map(([k]) => k);
     }
 
     // last 8 decisions for the trail
@@ -244,6 +278,63 @@ function checkLearningPass() {
       persona: 'orchestrator'
     };
     fs.appendFileSync(decisionsLog, JSON.stringify(entry) + '\n');
+  }
+}
+
+function writeContextMd() {
+  try {
+    const contextPath = path.join(STATE_DIR, 'context.md');
+    const wf = getActiveWorkflow();
+    const now = new Date().toISOString().slice(0, 10);
+
+    let lines = [
+      `# CSO Context Snapshot`,
+      `<!-- Auto-rewritten by on-session-end hook at each session end. Do not edit manually. -->`,
+      `<!-- Last updated: ${now} -->`,
+      ``,
+    ];
+
+    if (wf) {
+      const tasks = wf.tasks || {};
+      // tasks can be: array of {title,...} OR object keyed by title
+      const taskEntries = Array.isArray(tasks)
+        ? tasks.map(t => [t.title || t.id || '?', t])
+        : Object.entries(tasks);
+      const done = taskEntries.filter(([, t]) => t.status === 'completed');
+      const open = taskEntries.filter(([, t]) => t.status !== 'completed');
+      lines.push(`## Active Workflow`);
+      lines.push(`**${wf.name || wf.objective || '(unnamed)'}**`);
+      lines.push(`Status: ${wf.status || '?'} | Progress: ${done.length}/${taskEntries.length} tasks`);
+      lines.push(``);
+      done.forEach(([title]) => lines.push(`- ${title} ✅`));
+      open.forEach(([title, t]) => {
+        const blocked = t.status === 'blocked' ? ' ⛔ BLOCKED' : ' ⏳';
+        lines.push(`- ${title}${blocked}`);
+      });
+      lines.push(``);
+    } else {
+      lines.push(`## Active Workflow`);
+      lines.push(`No active workflow.`);
+      lines.push(``);
+    }
+
+    // Last 3 decisions
+    const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
+    if (fs.existsSync(decisionsLog)) {
+      const dl = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean).slice(-3);
+      if (dl.length) {
+        lines.push(`## Recent Decisions`);
+        dl.forEach(l => {
+          try { const d = JSON.parse(l); lines.push(`- ${d.decision || d.chosen || '?'}`); } catch {}
+        });
+        lines.push(``);
+      }
+    }
+
+    fs.writeFileSync(contextPath, lines.join('\n'));
+    console.log('[CSO] context.md refreshed');
+  } catch (e) {
+    console.error('[CSO] writeContextMd error:', e.message);
   }
 }
 
