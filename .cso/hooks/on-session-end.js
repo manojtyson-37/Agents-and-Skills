@@ -2,45 +2,22 @@
 
 const fs = require('fs');
 const path = require('path');
-const { logHookEvent } = require('./cso-utils');
+const { logHookEvent, getActiveWorkflow: resolveActiveWorkflow } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const WORKFLOWS_DIR = path.join(STATE_DIR, 'workflows');
 const METRICS_FILE = path.join(STATE_DIR, 'metrics.json');
-
-// Returns the most recently active workflow from workflows/ dir, or null.
-function getActiveWorkflow() {
-  if (!fs.existsSync(WORKFLOWS_DIR)) return null;
-  const files = fs.readdirSync(WORKFLOWS_DIR).filter(f => f.endsWith('.json'));
-  let best = null, bestMtime = 0;
-  for (const f of files) {
-    const fp = path.join(WORKFLOWS_DIR, f);
-    try {
-      const s = JSON.parse(fs.readFileSync(fp, 'utf-8'));
-      const mtime = fs.statSync(fp).mtimeMs;
-      if (s.status === 'in-progress' || s.status === 'active') {
-        if (mtime > bestMtime) { best = s; bestMtime = mtime; }
-      }
-    } catch {}
-  }
-  // Fallback: most recently modified workflow of any status
-  if (!best) {
-    for (const f of files) {
-      const fp = path.join(WORKFLOWS_DIR, f);
-      try {
-        const mtime = fs.statSync(fp).mtimeMs;
-        if (mtime > bestMtime) { best = JSON.parse(fs.readFileSync(fp, 'utf-8')); bestMtime = mtime; }
-      } catch {}
-    }
-  }
-  return best;
-}
 
 async function onSessionEnd() {
   try {
     if (!fs.existsSync(STATE_DIR)) {
       fs.mkdirSync(STATE_DIR, { recursive: true });
     }
+
+    // Resolve active workflow BEFORE the save loop — the loop resets file mtimes on
+    // all in-progress workflows simultaneously, making post-loop mtime-based ranking
+    // undefined. The shared resolver uses stable filename timestamps instead.
+    const activeWf = resolveActiveWorkflow(STATE_DIR);
 
     // Save all in-progress workflows (touch lastSavedAt)
     if (fs.existsSync(WORKFLOWS_DIR)) {
@@ -52,10 +29,13 @@ async function onSessionEnd() {
           if (s.status === 'in-progress' || s.status === 'active') {
             s.lastSavedAt = new Date().toISOString();
             fs.writeFileSync(fp, JSON.stringify(s, null, 2));
-            console.log('[CSO] Workflow state saved:', s.name || f);
+            console.log('[CSO] Workflow state saved:', s.objective?.slice(0, 60) || f);
             saveIncompleteToInbox(s);
           }
-        } catch {}
+        } catch (e) {
+          console.error('[CSO] Failed to save workflow:', f, e.message);
+          logHookEvent('on-session-end', 'workflow-save', 'error', e.message);
+        }
       }
     }
 
@@ -69,7 +49,9 @@ async function onSessionEnd() {
         if (usage.totalTokens) {
           console.log(`  Tokens: ${usage.totalTokens} total, ${usage.toolCalls} tool calls`);
         }
-      } catch {}
+      } catch (e) {
+        console.error('[CSO] Metrics read error:', e.message);
+      }
     }
 
     // Check if learning pass was done
@@ -79,10 +61,10 @@ async function onSessionEnd() {
     spawnDistillIfNeeded();
 
     // Refresh context.md snapshot (reduces token load on next session start)
-    writeContextMd();
+    writeContextMd(activeWf);
 
     // Write an auto session checkpoint so the NEXT session has continuity
-    writeSessionCheckpoint();
+    writeSessionCheckpoint(activeWf);
 
     logHookEvent('on-session-end', 'session', 'fired', 'session-ended');
     console.log('[CSO] Session end. State persisted.');
@@ -96,37 +78,49 @@ function saveIncompleteToInbox(state) {
   let inbox = { version: 1, tasks: [], lastUpdated: null };
 
   if (fs.existsSync(inboxPath)) {
-    try { inbox = JSON.parse(fs.readFileSync(inboxPath, 'utf-8')); } catch {}
+    try {
+      const parsed = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+      inbox = parsed;
+      inbox.tasks = Array.isArray(inbox.tasks) ? inbox.tasks : [];
+    } catch (e) {
+      console.error('[CSO] inbox.json parse error:', e.message);
+    }
   }
 
+  // tasks is an object keyed by task-id; values have status/owner/note
+  // Use Object.entries so the key (task id / title) is preserved
   const tasksRaw = state.tasks || {};
-  const taskArr = Array.isArray(tasksRaw) ? tasksRaw : Object.values(tasksRaw);
-  const incompleteTasks = taskArr.filter(t => t.status !== 'completed');
+  const taskEntries = Array.isArray(tasksRaw)
+    ? tasksRaw.map(t => [t.title || t.id || '?', t])
+    : Object.entries(tasksRaw);
+  const incompleteTasks = taskEntries.filter(([, t]) => t.status !== 'completed');
 
   if (incompleteTasks.length === 0) return;
 
-  // Check if this workflow already has inbox entries — update rather than duplicate
-  const existingIds = new Set(inbox.tasks.map(t => t.workflowId));
-  if (existingIds.has(state.objectiveId)) {
-    inbox.tasks = inbox.tasks.filter(t => t.workflowId !== state.objectiveId);
+  // Replace existing entries for this workflow rather than duplicating
+  const workflowId = state.objectiveId;
+  if (workflowId) {
+    inbox.tasks = inbox.tasks.filter(t => t.workflowId !== workflowId);
   }
 
   const cwd = process.cwd();
   const workspace = path.basename(cwd);
+  const totalTasks = taskEntries.length;
+  const completedCount = taskEntries.filter(([, t]) => t.status === 'completed').length;
 
-  incompleteTasks.forEach(task => {
+  incompleteTasks.forEach(([title, task]) => {
     inbox.tasks.push({
       id: `inbox-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      title: task.title,
+      title,
       owner: task.owner,
       estimate: task.estimate,
       status: 'pending',
       priority: task.blockedBy?.length > 0 ? 'blocked' : 'ready',
       workspace,
       workspacePath: cwd,
-      workflowId: state.objectiveId,
+      workflowId,
       workflowObjective: state.objective,
-      context: `Part of workflow: ${state.objective}. ${Object.keys(state.tasks).length} total tasks, ${(state.completedTasks || []).length} completed.`,
+      context: `Part of workflow: ${state.objective}. ${totalTasks} total tasks, ${completedCount} completed.`,
       createdAt: new Date().toISOString()
     });
   });
@@ -136,7 +130,7 @@ function saveIncompleteToInbox(state) {
   console.log(`[CSO] Saved ${incompleteTasks.length} incomplete task(s) to inbox`);
 }
 
-function writeSessionCheckpoint() {
+function writeSessionCheckpoint(activeWf) {
   // Deterministic auto-summary appended every session so the next one resumes with context.
   // A richer narrative checkpoint may already have been written by CSO at "Complete" (kind:"rich").
   try {
@@ -155,10 +149,8 @@ function writeSessionCheckpoint() {
       }
     }
 
-    // Skip idle/empty sessions: don't spam checkpoints that bury meaningful ones.
-    const activeWf = getActiveWorkflow();
-    const obj0 = (activeWf?.objective || activeWf?.name || '').toLowerCase();
-    const activeWorkflow = activeWf &&
+    const obj0 = (activeWf?.objective || '').toLowerCase();
+    const isRealWorkflow = activeWf &&
       (activeWf.status === 'in-progress' || activeWf.status === 'active') &&
       obj0 && obj0 !== '(idle)' && obj0 !== '(none)';
 
@@ -168,22 +160,21 @@ function writeSessionCheckpoint() {
       const lastD = dl.length ? JSON.parse(dl[dl.length - 1]) : null;
       if (lastD && (new Date(lastD.timestamp).getTime() || 0) > lastTs) newDecisionSince = true;
     }
-    if (!activeWorkflow && !newDecisionSince) {
+    if (!isRealWorkflow && !newDecisionSince) {
       return; // nothing happened this session — no checkpoint
     }
 
     let objective = '(none)', status = 'idle', completed = 0, total = 0, open = [];
     if (activeWf) {
-      const s = activeWf;
-      objective = s.objective || s.name || objective;
-      status = s.status || status;
-      const tasks = s.tasks || {};
-      const taskEntries2 = Array.isArray(tasks)
+      objective = activeWf.objective || objective;
+      status = activeWf.status || status;
+      const tasks = activeWf.tasks || {};
+      const taskEntries = Array.isArray(tasks)
         ? tasks.map(t => [t.title || t.id || '?', t])
         : Object.entries(tasks);
-      completed = taskEntries2.filter(([, t]) => t.status === 'completed').length;
-      total = taskEntries2.length;
-      open = taskEntries2.filter(([, t]) => t.status !== 'completed').map(([k]) => k);
+      completed = taskEntries.filter(([, t]) => t.status === 'completed').length;
+      total = taskEntries.length;
+      open = taskEntries.filter(([, t]) => t.status !== 'completed').map(([k]) => k);
     }
 
     // last 8 decisions for the trail
@@ -195,7 +186,10 @@ function writeSessionCheckpoint() {
 
     let openInbox = 0;
     if (fs.existsSync(inboxPath)) {
-      try { openInbox = (JSON.parse(fs.readFileSync(inboxPath, 'utf-8')).tasks || []).filter(t => t.status === 'pending').length; } catch {}
+      try {
+        const ib = JSON.parse(fs.readFileSync(inboxPath, 'utf-8'));
+        openInbox = (Array.isArray(ib.tasks) ? ib.tasks : []).filter(t => t.status === 'pending').length;
+      } catch {}
     }
 
     const entry = {
@@ -242,7 +236,6 @@ function checkLearningPass() {
   const feedbackLog = path.join(STATE_DIR, 'feedback.jsonl');
   const decisionsLog = path.join(STATE_DIR, 'decisions.jsonl');
 
-  // Count recent corrections
   const twoHoursAgoMs = Date.now() - 2 * 60 * 60 * 1000;
   let corrections = 0;
   if (fs.existsSync(feedbackLog)) {
@@ -255,7 +248,6 @@ function checkLearningPass() {
     }
   }
 
-  // Check if learning entries were logged
   let learnings = 0;
   if (fs.existsSync(decisionsLog)) {
     const lines = fs.readFileSync(decisionsLog, 'utf-8').trim().split('\n').filter(Boolean);
@@ -270,7 +262,6 @@ function checkLearningPass() {
   if (corrections > 0 && learnings === 0) {
     logHookEvent('on-session-end', 'learning', 'fired', `learning-missing: ${corrections} correction(s) with no learning entries`);
     console.log(`[CSO] ⚠️ SESSION ENDED WITHOUT LEARNING PASS: ${corrections} correction(s) detected but no learnings saved.`);
-    // Auto-log the failure
     const entry = {
       timestamp: new Date().toISOString(),
       decision: 'FAILURE: Session ended without learning pass',
@@ -281,11 +272,10 @@ function checkLearningPass() {
   }
 }
 
-function writeContextMd() {
+function writeContextMd(activeWf) {
   try {
     const contextPath = path.join(STATE_DIR, 'context.md');
-    const wf = getActiveWorkflow();
-    const now = new Date().toISOString().slice(0, 10);
+    const now = new Date().toISOString(); // full ISO — same-day sessions need time to distinguish
 
     let lines = [
       `# CSO Context Snapshot`,
@@ -294,22 +284,21 @@ function writeContextMd() {
       ``,
     ];
 
-    if (wf) {
-      const tasks = wf.tasks || {};
-      // tasks can be: array of {title,...} OR object keyed by title
+    if (activeWf) {
+      const tasks = activeWf.tasks || {};
       const taskEntries = Array.isArray(tasks)
         ? tasks.map(t => [t.title || t.id || '?', t])
         : Object.entries(tasks);
       const done = taskEntries.filter(([, t]) => t.status === 'completed');
       const open = taskEntries.filter(([, t]) => t.status !== 'completed');
       lines.push(`## Active Workflow`);
-      lines.push(`**${wf.name || wf.objective || '(unnamed)'}**`);
-      lines.push(`Status: ${wf.status || '?'} | Progress: ${done.length}/${taskEntries.length} tasks`);
+      lines.push(`**${activeWf.objective || '(unnamed)'}**`);
+      lines.push(`Status: ${activeWf.status || '?'} | Progress: ${done.length}/${taskEntries.length} tasks`);
       lines.push(``);
       done.forEach(([title]) => lines.push(`- ${title} ✅`));
       open.forEach(([title, t]) => {
-        const blocked = t.status === 'blocked' ? ' ⛔ BLOCKED' : ' ⏳';
-        lines.push(`- ${title}${blocked}`);
+        const marker = t.status === 'blocked' ? ' ⛔ BLOCKED' : t.status === 'deferred' ? ' 🔁 DEFERRED' : ' ⏳';
+        lines.push(`- ${title}${marker}`);
       });
       lines.push(``);
     } else {
