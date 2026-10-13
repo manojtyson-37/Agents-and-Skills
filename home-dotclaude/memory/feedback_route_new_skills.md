@@ -24,3 +24,11 @@ were added to the routing map (commit a67c93e, 2026-06-28).
 
 **How to apply:** After any skill install, update the routing table + resync `home-dotclaude/CLAUDE.md`
 + commit. See [[reference-gstack]], [[reference-codebase-graph-tools]], [[feedback-sync-memory-to-repo]].
+
+**Addendum 2026-10-13 (gstack 1.91.94 routing):** before adding a skill to the routing table, grep its
+SKILL.md for `git commit`, `git push`, `gh pr create` and auto-fix steps. gstack `/qa` commits fixes,
+`/review` auto-edits files, `/ship` pushes+opens PRs — all bypass the code-reviewer gate unless the
+routing row orders them explicitly (`/review` first, code-reviewer LAST; code-reviewer APPROVE before
+`/ship`; `/qa-only` inside the EXECUTE loop). The first draft of the routing line missed this and also
+contradicted the `Skill("cso")` hook; the opus code-reviewer caught both. Also write routing rows
+against the real hook behavior (read the hook), not what the prose intends.
