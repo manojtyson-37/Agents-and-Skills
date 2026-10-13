@@ -111,23 +111,20 @@ if (cmd === 'list') {
     }
   }
 
-  // Copy target workflow into workflow_state.json
-  const targetState = fs.readFileSync(entry.stateFile, 'utf-8');
-  fs.writeFileSync(WORKFLOW_STATE, targetState);
-
   // Update registry: set active to this workflow, update lastActiveAt
+  // Hooks now read directly from workflows/ via the shared resolver — no flat file copy needed.
   entry.lastActiveAt = new Date().toISOString();
   if (!Array.isArray(registry.active)) registry.active = [];
   if (!registry.active.includes(objectiveId)) registry.active.push(objectiveId);
   saveRegistry(registry);
 
-  const state = JSON.parse(targetState);
+  const state = JSON.parse(fs.readFileSync(entry.stateFile, 'utf-8'));
   const completed = (state.completedTasks || []).length;
   const total = Object.keys(state.tasks || {}).length;
   console.log(`[workflow-manager] Switched to: ${objectiveId}`);
   console.log(`[workflow-manager] Objective: ${(state.objective || '').substring(0, 100)}`);
   console.log(`[workflow-manager] Progress: ${completed}/${total} tasks done | status: ${state.status}`);
-  console.log('[workflow-manager] workflow_state.json updated — hooks will resume this workflow.');
+  console.log('[workflow-manager] Registry updated — hooks will resume this workflow via workflows/ resolver.');
 
 } else if (cmd === 'new') {
   const objective = args.join(' ').trim();
@@ -174,12 +171,10 @@ if (cmd === 'list') {
   if (!registry.active.includes(objectiveId)) registry.active.push(objectiveId);
   saveRegistry(registry);
 
-  // Write as current workflow_state.json
-  fs.writeFileSync(WORKFLOW_STATE, JSON.stringify(workflow, null, 2));
-
   console.log(`[workflow-manager] New workflow created: ${objectiveId}`);
   console.log(`[workflow-manager] Objective: ${objective.substring(0, 100)}`);
-  console.log('[workflow-manager] workflow_state.json updated — CSO will start planning.');
+  console.log(`[workflow-manager] File: ${perWorkflowFile}`);
+  console.log('[workflow-manager] Hooks will pick this up via workflows/ resolver.');
 
 } else if (cmd === 'sync') {
   // Sync registry status from per-workflow files (in case they were updated externally)

@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { checkMemoryUpdated, logHookEvent } = require('./cso-utils');
+const { checkMemoryUpdated, logHookEvent, getActiveWorkflow } = require('./cso-utils');
 
 // STATE_DIR/logs are always this repo's (.cso/state is shared across all workspaces by
 // design). But git operations must use the ACTUAL session cwd, not this repo's path —
@@ -272,35 +272,40 @@ async function main() {
     }
 
     // Fifth gate: a code commit landed but CSO state files were not updated this session.
-    // workflow_state.json and task_history.jsonl are required after every task. Skipping
-    // them means the dashboard goes dark and next-session recovery is impossible.
-    // Window: state files must have been touched within 10 min before the commit or any
-    // time after it (covers both "log then commit" and "commit then log" orderings).
+    // task_history.jsonl is required after every task. Also check that at least one workflow
+    // file in workflows/ was touched (replaces the old workflow_state.json check).
     if (recentCommitMs && recentCommitMs >= sessionStart && lastCommitTouchesCode()) {
       const stateWindow = recentCommitMs - 10 * 60 * 1000;
-      const wfPath = path.join(STATE_DIR, 'workflow_state.json');
+      const workflowsDir = path.join(STATE_DIR, 'workflows');
       const thPath = path.join(STATE_DIR, 'task_history.jsonl');
-      // Skip state-file gates when no CSO workflow ran this session — conversational
-      // sessions (questions, audits, reviews) commit code without creating a workflow.
-      // Use session-window mtime on both files: if neither was touched since sessionStart,
-      // no workflow was active and the gates don't apply. Existence-only check is weaker:
-      // the files persist across sessions, so wfExists is almost always true, meaning
-      // a real workflow session that deletes/corrupts workflow_state.json would bypass both.
-      const wfTouchedThisSession = fs.existsSync(wfPath) && fs.statSync(wfPath).mtimeMs >= sessionStart;
+
+      // Determine if any workflow file was touched this session (session-window mtime check)
+      let wfTouchedThisSession = false;
+      let wfUpdated = false;
+      if (fs.existsSync(workflowsDir)) {
+        const wfFiles = fs.readdirSync(workflowsDir).filter(f => f.endsWith('.json'));
+        for (const f of wfFiles) {
+          try {
+            const mtime = fs.statSync(path.join(workflowsDir, f)).mtimeMs;
+            if (mtime >= sessionStart) wfTouchedThisSession = true;
+            if (mtime >= stateWindow) wfUpdated = true;
+          } catch {}
+        }
+      }
+
       const thTouchedThisSession = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= sessionStart;
       if (!wfTouchedThisSession && !thTouchedThisSession) {
-        // Neither state file touched this session → no workflow ran → gates do not apply.
+        // Neither state touched this session → no workflow ran → gates do not apply.
       } else {
-        const wfUpdated = fs.existsSync(wfPath) && fs.statSync(wfPath).mtimeMs >= stateWindow;
-        const thUpdated = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= stateWindow;
         if (!wfUpdated) {
-          logHookEvent('on-stop-gate', 'gate-5-state-files', 'blocked', 'workflow_state.json not updated after commit');
+          logHookEvent('on-stop-gate', 'gate-5-state-files', 'blocked', 'no workflow file updated after commit');
           return block(
-            `A git commit landed at ${new Date(recentCommitMs).toISOString()} but workflow_state.json ` +
-            `was not updated this session. Update it (set the task to completed, move inProgressTask) ` +
-            `before ending this turn. Path: ${wfPath}`
+            `A git commit landed at ${new Date(recentCommitMs).toISOString()} but no workflow file in ` +
+            `workflows/ was updated this session. Update the active workflow task status before ending this turn. ` +
+            `Dir: ${workflowsDir}`
           );
         }
+        const thUpdated = fs.existsSync(thPath) && fs.statSync(thPath).mtimeMs >= stateWindow;
         if (!thUpdated) {
           logHookEvent('on-stop-gate', 'gate-5-state-files', 'blocked', 'task_history.jsonl not updated after commit');
           return block(
@@ -310,37 +315,38 @@ async function main() {
             `before ending this turn. Path: ${thPath}`
           );
         }
-        logHookEvent('on-stop-gate', 'gate-5-state-files', 'passed', 'workflow_state and task_history updated');
+        logHookEvent('on-stop-gate', 'gate-5-state-files', 'passed', 'workflow files and task_history updated');
       }
     } else {
       logHookEvent('on-stop-gate', 'gate-5-state-files', 'skipped', 'no qualifying commit');
     }
 
     // Fifth-B gate: workflow stuck in bootstrapping with 0 tasks at session end.
-    // Root cause of "workflow state decorative" — hook creates workflow, model does real work,
-    // but never writes tasks to workflow_state.json, leaving it perpetually bootstrapping.
-    // Only fires when real work happened (commit landed) — idle sessions are fine to abandon.
-    const wfPath = path.join(STATE_DIR, 'workflow_state.json');
-    if (recentCommitMs && recentCommitMs >= sessionStart && fs.existsSync(wfPath)) {
+    if (recentCommitMs && recentCommitMs >= sessionStart) {
       try {
-        const wf = JSON.parse(fs.readFileSync(wfPath, 'utf-8'));
-        const isGhostBootstrap = wf.status === 'bootstrapping' && Object.keys(wf.tasks || {}).length === 0;
-        if (isGhostBootstrap) {
-          logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'blocked', 'workflow stuck in bootstrapping with 0 tasks after commit');
-          return block(
-            `Workflow is still in "bootstrapping" state with 0 tasks, but real work (commit) happened ` +
-            `this session. Either: (a) write the task plan to workflow_state.json ` +
-            `(set status:"in-progress", populate tasks:{}, set inProgressTask), ` +
-            `or (b) set status:"abandoned" to explicitly close it. ` +
-            `Path: ${wfPath}`
-          );
+        const wf = getActiveWorkflow(STATE_DIR);
+        if (wf) {
+          const tasks = wf.tasks || {};
+          const taskCount = Array.isArray(tasks) ? tasks.length : Object.keys(tasks).length;
+          const isGhostBootstrap = wf.status === 'bootstrapping' && taskCount === 0;
+          if (isGhostBootstrap) {
+            logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'blocked', 'workflow stuck in bootstrapping with 0 tasks after commit');
+            return block(
+              `Workflow is still in "bootstrapping" state with 0 tasks, but real work (commit) happened ` +
+              `this session. Either: (a) update the workflow file in workflows/ ` +
+              `(set status:"in-progress", populate tasks:{}, set inProgressTask), ` +
+              `or (b) set status:"abandoned" to explicitly close it.`
+            );
+          }
+          logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'passed', 'workflow has tasks or is not bootstrapping');
+        } else {
+          logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', 'no active workflow found');
         }
-        logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'passed', 'workflow has tasks or is not bootstrapping');
-      } catch {
-        logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', 'workflow_state.json unreadable');
+      } catch (e) {
+        logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', `resolver error: ${e.message}`);
       }
     } else {
-      logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', 'no qualifying commit or no workflow file');
+      logHookEvent('on-stop-gate', 'gate-5b-ghost-bootstrap', 'skipped', 'no qualifying commit');
     }
 
     // Sixth gate: commit touches UI/app code but no local verify happened this session.
@@ -566,6 +572,8 @@ function transcriptHasLocalVerify(transcriptPath, sinceMs) {
           const name = (c.name || '').toLowerCase();
           if (name === 'mcp__claude_preview__preview_screenshot') return true;
           if (name === 'mcp__claude_in_chrome__computer' && c.input && c.input.action === 'screenshot') return true;
+          // Browser pane tool (in-app browser, different MCP server than Chrome extension)
+          if (name === 'mcp__claude_browser__computer' && c.input && c.input.action === 'screenshot') return true;
         }
       } catch {}
     }
@@ -706,6 +714,7 @@ function transcriptHasProdVerify(transcriptPath, sinceMs) {
           // Screenshot = visual proof (computer action=screenshot or preview_screenshot)
           if (
             (name === 'mcp__claude_in_chrome__computer' && c.input && c.input.action === 'screenshot') ||
+            (name === 'mcp__claude_browser__computer' && c.input && c.input.action === 'screenshot') ||
             name === 'mcp__claude_preview__preview_screenshot'
           ) {
             hasScreenshot = true;
@@ -720,20 +729,34 @@ function transcriptHasProdVerify(transcriptPath, sinceMs) {
   }
 }
 
-// Returns the leading text block of the most recent qualifying assistant message in the
-// transcript (since sinceMs), or null if unreadable/no assistant text this turn. Uses the
-// FIRST text block of each message (not the last) because the CSO: rule is about how the
-// response starts — a message shaped [text "CSO: …", tool_use, text "…"] must be judged on
-// its opening block, not its trailing one. Skips tool_use-only messages (no user-facing text).
+// Returns the leading text block of the FIRST qualifying assistant message after the most
+// recent user message (since sinceMs), or null if unreadable/no assistant text this turn.
+// Root cause fixed here (2026-08-05): Claude Code splits one logical reply into MANY
+// assistant transcript entries whenever tool calls are interleaved — normal for any
+// multi-step turn. The old version scanned ALL assistant entries since sinceMs and kept
+// overwriting its result with each one's first text block, so it ended up checking the
+// LAST fragment of the LAST entry — typically a short mid-turn status update (correctly,
+// per style, not re-prefixed) rather than the turn's true opening line. That caused
+// near-constant false-positive blocks whenever a turn had more than one tool round-trip,
+// forcing a resend that duplicated the (already-correct) reply in the transcript. The rule
+// is "the response must START with CSO:" — that means the first text of the turn, not the
+// last fragment emitted. Fix: find the last user message, then take the first text block of
+// the first assistant message that follows it.
 function transcriptLastAssistantText(transcriptPath, sinceMs) {
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return null;
   try {
     const all = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
     const lines = all.length > MAX_SCAN_LINES ? all.slice(-MAX_SCAN_LINES) : all;
-    let lastText = null;
-    for (const line of lines) {
+    let lastUserIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
       try {
-        const e = JSON.parse(line);
+        const e = JSON.parse(lines[i]);
+        if (e.type === 'user' && !e.isSidechain) lastUserIdx = i;
+      } catch {}
+    }
+    for (let i = lastUserIdx + 1; i < lines.length; i++) {
+      try {
+        const e = JSON.parse(lines[i]);
         if (e.type !== 'assistant' || e.isSidechain) continue;
         // Missing/unparseable timestamp: don't exclude on that basis. A false negative here
         // (silently skipping the gate) defeats the gate entirely; a false positive (checking
@@ -746,10 +769,10 @@ function transcriptLastAssistantText(transcriptPath, sinceMs) {
         const firstText = content.find(
           (c) => c && c.type === 'text' && typeof c.text === 'string' && c.text.trim()
         );
-        if (firstText) lastText = firstText.text;
+        if (firstText) return firstText.text;
       } catch {}
     }
-    return lastText;
+    return null;
   } catch {
     return null; // unreadable transcript → don't block
   }

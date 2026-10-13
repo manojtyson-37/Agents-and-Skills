@@ -8,6 +8,7 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const STATE_DIR = path.join(__dirname, '../.cso/state');
+const { getActiveWorkflow } = require('../.cso/hooks/cso-utils');
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -52,14 +53,8 @@ function computeRealTaskStats() {
 // API: Get workflow state
 app.get('/api/workflow', (req, res) => {
   try {
-    const stateFile = path.join(STATE_DIR, 'workflow_state.json');
-    let state = { status: 'no-workflow' };
-    if (fs.existsSync(stateFile)) {
-      state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-    }
+    const state = getActiveWorkflow(STATE_DIR) || { status: 'no-workflow' };
     const real = computeRealTaskStats();
-    // Flag when workflow_state.json's own bookkeeping disagrees with task_history.jsonl
-    // ground truth, instead of silently presenting the (possibly fictional) state as fact.
     const declaredCompleted = (state.completedTasks || []).length;
     state.dataStale = real.totalTasksPlanned > 0 && declaredCompleted !== real.tasksCompleted;
     state.realTaskStats = real;
