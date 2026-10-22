@@ -65,4 +65,47 @@ function logHookEvent(hookName, gate, outcome, detail) {
   }
 }
 
-module.exports = { checkMemoryUpdated, logHookEvent };
+// ─── Workflow resolver ───────────────────────────────────────────────────────
+// Single source of truth for "which workflow is active?" across all hooks,
+// dashboard, and daemon. Reads from workflows/ dir — never from the deleted
+// workflow_state.json flat file.
+
+/**
+ * Return all parsed workflow objects from STATE_DIR/workflows/.
+ * Each object gets a non-enumerable `_filePath` so callers can write back.
+ */
+function getAllWorkflows(stateDir) {
+  const workflowsDir = path.join(stateDir, 'workflows');
+  if (!fs.existsSync(workflowsDir)) return [];
+  return fs.readdirSync(workflowsDir)
+    .filter(f => f.endsWith('.json'))
+    .map(f => {
+      try {
+        const fp = path.join(workflowsDir, f);
+        const wf = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+        // Stable creation timestamp from filename — mtime is unreliable (save loop resets it)
+        const m = f.match(/workflow-(\d+)-/);
+        Object.defineProperty(wf, '_filePath', { value: fp, enumerable: false });
+        Object.defineProperty(wf, '_fileTs', { value: m ? parseInt(m[1], 10) : 0, enumerable: false });
+        return wf;
+      } catch { return null; }
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Return the single most recently created in-progress/active workflow,
+ * or the most recently created workflow of any status as a fallback.
+ * Returns null if no workflows exist.
+ */
+function getActiveWorkflow(stateDir) {
+  const all = getAllWorkflows(stateDir);
+  const active = all
+    .filter(wf => wf.status === 'in-progress' || wf.status === 'active')
+    .sort((a, b) => (b._fileTs || 0) - (a._fileTs || 0));
+  if (active.length) return active[0];
+  // Strict-active fallback: return null so callers can emit "No active workflow"
+  return null;
+}
+
+module.exports = { checkMemoryUpdated, logHookEvent, getAllWorkflows, getActiveWorkflow };

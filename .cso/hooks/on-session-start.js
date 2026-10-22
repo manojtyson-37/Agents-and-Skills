@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const net = require('net');
-const { logHookEvent } = require('./cso-utils');
+const { logHookEvent, getActiveWorkflow } = require('./cso-utils');
 
 const STATE_DIR = path.join(__dirname, '../state');
 const ARCHIVE_DIR = path.join(STATE_DIR, 'archive');
@@ -80,15 +80,14 @@ function incrementSessionCount() {
 }
 
 async function archiveCompletedWorkflow() {
-  if (!fs.existsSync(WORKFLOW_STATE)) return;
-
   let state;
   try {
-    state = JSON.parse(fs.readFileSync(WORKFLOW_STATE, 'utf-8'));
-  } catch {
-    console.log('[CSO] workflow_state.json unreadable (corrupt?). Skipping archive check.');
+    state = getActiveWorkflow(STATE_DIR);
+  } catch (e) {
+    console.log('[CSO] workflows/ dir unreadable. Skipping archive check:', e.message);
     return;
   }
+  if (!state) return;
 
   // Archive if completed OR stale (no real activity in 24h and stuck in-progress).
   // lastSavedAt is NOT used for this clock: on-session-end.js bumps it every single
@@ -129,8 +128,12 @@ async function archiveCompletedWorkflow() {
   fs.writeFileSync(archivePath, JSON.stringify(state, null, 2));
   console.log(`[CSO] Archived completed workflow: ${archiveName}`);
 
-  // Reset state files for new session
-  fs.unlinkSync(WORKFLOW_STATE);
+  // Update the workflow file in-place in workflows/ dir (status already set to abandoned above)
+  // Non-destructive: the file stays for history, just with updated status so resolver skips it
+  if (state._filePath && fs.existsSync(state._filePath)) {
+    fs.writeFileSync(state._filePath, JSON.stringify(state, null, 2));
+    console.log('[CSO] Workflow file updated in-place (status set to archived/abandoned).');
+  }
 
   const staleFiles = ['decisions.jsonl', 'task_history.jsonl', 'notifications.jsonl', 'feedback.jsonl', 'iterations.jsonl'];
   for (const file of staleFiles) {

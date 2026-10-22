@@ -1,6 +1,6 @@
 ---
 name: reference-gstack
-description: "gstack (garrytan/gstack, MIT, 117K★) installed non-team at ~/.claude/skills/gstack — virtual eng team slash-commands; complements CSO."
+description: "gstack (garrytan/gstack, MIT) at ~/.claude/skills/gstack, non-team, upgraded to 1.91.94.0 on 2026-10-13; tools layer under CSO. Full routing map lives in CLAUDE.md."
 metadata: 
   node_type: memory
   type: reference
@@ -8,29 +8,30 @@ metadata:
 ---
 
 Installed 2026-06-28, **non-team mode** (no silent auto-update), user-scope at
-`~/.claude/skills/gstack`. Prereq bun installed at `~/.bun/bin`. MIT, 117K★, Garry Tan's
-Claude Code setup. ~50 slash-command skills.
+`~/.claude/skills/gstack`. Upgraded 1.58.5.0 → **1.91.94.0** on 2026-10-13 via `/gstack-upgrade`.
+Needs **Bun ≥ 1.4.2** (upgraded 1.3.14 → 1.4.3 same day; `gstack-doctor --check` flagged it).
+Verify health: `~/.claude/skills/gstack/bin/gstack-doctor --check` → expect `gstack: ok`.
 
-**Relationship to CSO:** same philosophy (virtual eng team), but gstack is broader/stateless
-slash-commands; CSO is the stateful brain (daemon, dashboard, workflow state, decision-maker,
-memory). **Keep CSO as orchestrator; use gstack for execution muscle CSO lacked.**
+**Relationship to CSO:** one owner per layer (user decision 2026-06-28): CSO = brain/state,
+superpowers = methodology (TDD, debugging), **gstack = tools**, graphify = recon, claude-mem =
+episodic memory, cso-learn = curated principles. Keep CSO as orchestrator.
 
-**High-value gstack skills CSO didn't have:**
-- `/qa`, `/qa-only`, `/browse` — real headless-browser QA of a URL (great for Silaa staging)
-- `/cso` — ⚠️ **Chief *Security* Officer** (OWASP/STRIDE audit). NAME COLLISION: this is NOT
-  the Chief-of-Staff CSO. Our CSO is the always-on protocol (no slash command), so typing
-  `/cso` triggers gstack's *security* audit. Be aware.
-- `/canary`, `/freeze`, `/guard`, `/unfreeze` — rollout safety + edit scoping
-- `/autoplan`, `/office-hours`, `/spec`, `/plan-*-review` — planning suite
-- `/ship`, `/land-and-deploy`, `/document-release` — release automation
-- `/design-review`, `/design-consultation`, `/design-shotgun` — design (beyond ui-ux-pro-max)
-- `/investigate`, `/retro`, `/health`, `/context-save`+`/context-restore`, iOS suite
+**Routing:** full skill→task map is the "gstack routing" section in `home-dotclaude/CLAUDE.md`
+(symlinked to `~/.claude/CLAUDE.md`), with a short copy injected by `.cso/hooks/on-user-prompt.js`.
+Update both when gstack adds/removes skills ([[feedback-route-new-skills]]).
 
-**Overlaps (already have):** `/learn`≈cso-learn, design≈ui-ux-pro-max, team-mode≈bootstrap.
+**Name collision:** gstack `/cso` = **security audit**, not the Chief-of-Staff orchestrator.
+`.cso/hooks/on-pretool-skill-gate.js` denies `Skill("cso")` on exact name `cso`, EXCEPT when the latest genuine user message (read from the transcript tail) typed `/cso` or said "security audit" (user decision 2026-10-13; fails closed; tests in `.cso/hooks/test/skill-gate.test.js`). Allows the call if the hook itself errors/times out. Otherwise use `/security-review`.
 
-**Risks noted:** team mode = silent hourly auto-update+run from upstream (supply-chain) — we
-chose NON-team; upgrade manually via `/gstack-upgrade`. `./setup` runs bash (hygienic: umask 077).
+**Deliberately NOT enabled (2026-10-13):**
+- plan-tune AskUserQuestion hooks — overlap CSO's own `on-pretool-question-gate.js`.
+- team mode / auto_upgrade — supply-chain risk; upgrade manually with `/gstack-upgrade`.
+- gbrain (`/setup-gbrain`) — overlaps claude-mem. Codex CLI not installed (Claude subagent is the outside voice).
 
-**How to apply:** CSO routes execution tasks to gstack skills — QA→`/qa`, security→`/cso`,
-rollout→`/canary`/`/freeze`, design→`/design-review`, release→`/ship`. See
-[[project_cso_decision_system]] and [[feedback-safe-tool-trials]].
+**Enabled 2026-10-13 (user: never commit secrets to public repos):** `gstack-config set redact_prepush_hook true` + per-repo hook via `gstack-redact install-prepush-hook` (installed in Agents-and-Skills, which is PUBLIC). Blocks pushes whose added lines contain HIGH-severity credentials; bypassed by `--no-verify` / `GSTACK_REDACT_PREPUSH=skip`; does not scan history. **Install it in every repo** (`/ship` does it automatically; for repos pushed without `/ship`, run `gstack-redact install-prepush-hook` inside the repo).
+
+**Side effect of setup:** registers a silent Stop hook (`timeline-stop-hook`, source
+`gstack-timeline-stop`) in `~/.claude/settings.json`; verified it emits nothing and does not
+interfere with CSO Stop gates. Remove: `gstack-settings-hook remove-source --source gstack-timeline-stop`.
+
+**Overlaps:** gstack `/learn` ≈ cso-learn; gstack design skills vs ui-ux-pro-max (both available).

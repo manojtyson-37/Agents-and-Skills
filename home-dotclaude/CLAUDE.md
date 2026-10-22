@@ -69,6 +69,8 @@ Subagent prompts: 2-3 sentence brief + file paths only. Never paste CLAUDE.md or
 | Debug | `systematic-debugging` (superpowers) |
 | TDD build | `test-driven-development` (superpowers) |
 
+## gstack routing (v1.91.94, tools layer — methodology/TDD/debug stays superpowers): idea→/office-hours · spec→/spec · plan review→/autoplan (or /plan-eng-review,/plan-ceo-review,/plan-design-review,/plan-devex-review) · QA→/qa-only in EXECUTE loop, /browse for pages; /qa commits its own fixes — run code-reviewer on them before push · flaky/race/polluter bisection→/investigate (debug methodology = superpowers systematic-debugging) · pre-merge→Skill("review") first, then code-reviewer agent last (merge gate; /review auto-fixes files) · design→/design-consultation,/design-review,/design-shotgun,/design-html,/devex-review · ship→code-reviewer APPROVE → /ship → /land-and-deploy → /canary · docs→/document-release,/document-generate · safety→/careful,/guard,/freeze · perf→/benchmark · health→/health,/test-audit,/deslop-shared-libs · evals→/eval-plan · retro→/retro · handoff→/context-save,/context-restore · iOS→/ios-qa,/ios-fix,/ios-design-review. ⚠️ gstack `/cso` = security audit, NOT this orchestrator; `Skill("cso")` is hook-blocked (name collision) unless the user's latest message typed `/cso` or asked for a "security audit" — otherwise use /security-review.
+
 ## State Files (absolute paths always)
 
 `/Users/manojaaa/Agents and Skills/.cso/state/`
